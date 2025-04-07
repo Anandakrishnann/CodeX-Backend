@@ -23,6 +23,8 @@ class UserRegisterSerializer(serializers.ModelSerializer):
 
         OTP.objects.filter(user=user).delete()
         expires_at = timezone.now() + timedelta(minutes=2)
+        OTP.objects.create(user=user, otp=otp_hash, expires_at=expires_at)
+
 
         subject = "Your OTP for Verification"
         message = (
@@ -35,9 +37,6 @@ class UserRegisterSerializer(serializers.ModelSerializer):
         recipient_list = [user.email]
 
         send_mail(subject, message, from_email, recipient_list)
-
-
-        OTP.objects.create(user=user, otp=otp_hash, expires_at=expires_at)
 
         print(f"OTP for {user.email}: {otp}")
 
@@ -96,7 +95,7 @@ class OTPVerificationSerializer(serializers.Serializer):
             user = Accounts.objects.get(email=email)
             print(user)
             otp_entry = OTP.objects.filter(user=user).latest("created_at")
-            print(otp_entry)
+            print(f"otp_entry{otp_entry}")
         except (Accounts.DoesNotExist, OTP.DoesNotExist):
             raise serializers.ValidationError("Invalid email or OTP.")
 
@@ -104,6 +103,7 @@ class OTPVerificationSerializer(serializers.Serializer):
             raise serializers.ValidationError("OTP has expired.")
 
         otp_hash = hashlib.sha256(str(otp).encode()).hexdigest()
+        print(otp_hash)
         print(otp_hash)
         print(otp_entry.otp)
         print(otp_hash == otp_entry.otp)

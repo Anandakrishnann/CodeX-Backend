@@ -122,7 +122,6 @@ class TutorSubscription(models.Model):
         return f"{self.tutor.account.email} - {self.plan.name}"
 
 
-
 class OTP(models.Model):
     user = models.ForeignKey('Accounts', on_delete=models.CASCADE)
     otp = models.CharField(max_length=500)
