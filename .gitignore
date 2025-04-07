@@ -1,0 +1,63 @@
+# Python
+*.pyc
+*.pyo
+*.pyd
+__pycache__
+*.so
+*.egg
+*.egg-info
+dist
+build
+eggs
+lib
+lib64
+parts
+sdist
+var
+wheels
+*.manifest
+*.spec
+
+# Django
+*.log
+*.pot
+*.pyc
+*.pyo
+__pycache__
+db.sqlite3
+*.db
+*.bak
+*.swp
+*.swo
+*.sqlite3
+
+# Virtual environments
+venv/
+env/
+.env
+.venv/
+.virtualenv/
+ENV/
+env.bak/
+
+# Django migrations folder
+*/migrations/
+
+# Media folder
+media/
+
+# Static folder (if you are using the collectstatic command)
+static/
+
+# VS Code
+.vscode/
+
+# PyCharm
+.idea/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+Desktop.ini
