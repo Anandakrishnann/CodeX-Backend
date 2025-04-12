@@ -51,7 +51,7 @@ class Accounts(AbstractBaseUser):
     email = models.EmailField(max_length=200, unique=True)
     phone = models.CharField(max_length=10, null=False)
     leetcode_id = models.CharField(max_length=200)
-    password = models.CharField(max_length=255)
+    password = models.CharField(max_length=255, null=True)
     profile_picture = models.URLField(blank=True, null=True)
 
     created_at = models.DateField(auto_now_add=True)
@@ -95,6 +95,7 @@ class TutorDetails(models.Model):
 
     STATUS_CHOICE = [('pending', 'Pending'), ('verified', 'Verified'), ('rejected', 'Rejected')]
     status = models.CharField(max_length=50, choices=STATUS_CHOICE, default="pending")
+    
 
     def __str__(self):
         return f"Tutor Details for {self.full_name}"
@@ -112,7 +113,7 @@ class TutorSubscription(models.Model):
     plan = models.ForeignKey(Plan, on_delete=models.SET_NULL, null=True)
     subscribed_on = models.DateTimeField(auto_now_add=True)
     expires_on = models.DateTimeField()
-    is_active = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
     
     # Stripe integration
     stripe_subscription_id = models.CharField(max_length=255, null=True, blank=True)

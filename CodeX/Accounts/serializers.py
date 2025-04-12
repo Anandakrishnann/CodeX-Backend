@@ -144,10 +144,16 @@ class ResendOTPSerializer(serializers.Serializer):
 class EditUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = Accounts
-        fields = ['first_name', 'last_name', 'phone', 'leetcode_id']  # No need for 'id'
+        fields = ['first_name', 'last_name', 'phone', 'leetcode_id']
 
     def update(self, instance, validated_data):
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
         return instance
+
+
+class CourseCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CourseCategory
+        fields = '__all__'

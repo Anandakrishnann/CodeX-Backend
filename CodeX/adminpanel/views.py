@@ -3,19 +3,25 @@ from django.contrib.auth import get_user_model
 from rest_framework.views import APIView 
 from rest_framework.response import Response 
 from rest_framework import status 
-from .serializers import TutorApplicationSerializer
 from .models import *
 from rest_framework.parsers import MultiPartParser, FormParser
-import cloudinary.uploader # type: ignore
 from rest_framework.permissions import IsAuthenticated
 from django.http import JsonResponse
 import traceback
-import cloudinary.utils # type: ignore
 from Accounts.models import *
+import stripe # type: ignore
+from django.conf import settings
+from .serializers import *
+from django.views.decorators.csrf import csrf_exempt
+from django.http import HttpResponse
+from django.utils.timezone import now, timedelta
+from rest_framework.permissions import AllowAny
 
+stripe.api_key = settings.STRIPE_SECRET_KEY
+endpoint_secret = settings.STRIPE_WEBHOOK_SECRET
 
 User = get_user_model()
-# Create your views here.
+
 
 class ListUsers(APIView):
     def get(self, request):
@@ -32,20 +38,25 @@ class ListUsers(APIView):
             return Response({"Unauthorized": "Token expired"}, status=401)
 
 
-class ListTutors(APIView):
 
+class ListTutors(APIView):
     def get(self, request):
         try:
-            tutors = User.objects.filter(role="tutor")
+            # Get active subscriptions
+            subscribed_tutors = TutorSubscription.objects.filter(is_active=True)
 
-            tutor_data = [{"id": tutor.id, "email": tutor.email, "first_name": tutor.first_name, "last_name":tutor.last_name, "leetcode_id":tutor.leetcode_id, "phone":tutor.phone, "status": bool(tutor.isblocked), "role":tutor.role } for tutor in tutors]
+            # Get the associated Accounts objects from each subscription
+            accounts = [sub.tutor.account for sub in subscribed_tutors]
 
-            response = Response({"users": tutor_data}, status=200)  # ✅ Ensure we return a Response
-            print(response)  # Optional: Debugging
+            tutor_data = [{"id": tutor.id, "email": tutor.email, "first_name": tutor.first_name, "last_name":tutor.last_name, "leetcode_id":tutor.leetcode_id, "phone":tutor.phone, "status": bool(tutor.isblocked), "role":tutor.role } for tutor in accounts]
 
-            return response 
-        except:
-            return Response({"Unauthorized": "Token expired"}, status=401)
+            return Response({"users": tutor_data}, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            return Response({"error": "Something went wrong"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 
 class Status(APIView):
 
@@ -66,6 +77,7 @@ class Status(APIView):
             return Response({"Unauthorized": "Token expired"}, status=401)
         
 
+
 class TutorStatus(APIView):
 
     def post(self, request):
@@ -82,7 +94,8 @@ class TutorStatus(APIView):
 
             return Response({"message": "Status updated successfully", "status": user.isblocked}, status=status.HTTP_200_OK)
         except:
-            return Response({"Unauthorized": "Token expired"}, status=401)
+            return Response({"Error": "Error While Chaning the status"}, status=status.HTTP_400_BAD_REQUEST)
+
 
 
 class TutorApplicationView(APIView):
@@ -95,6 +108,7 @@ class TutorApplicationView(APIView):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 
 class TutorApplicationsOverView(APIView):
@@ -201,7 +215,7 @@ class AcceptApplicationView(APIView):
 
             user.role = "tutor"
             user.save()
-            application.status = "accepted"
+            application.status = "verified"
             application.save()
 
             return Response({"success": "Tutor Data added successfully"}, status=status.HTTP_201_CREATED)
@@ -232,7 +246,6 @@ class RejectApplicationView(APIView):
 
 
 
-
 class ListApplicationsView(APIView):
     def get(self, request):
         try:
@@ -241,6 +254,7 @@ class ListApplicationsView(APIView):
             return Response(serializer.data, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 class EditUserView(APIView):
@@ -255,3 +269,215 @@ class EditUserView(APIView):
             # serializer =  
         except Exception as e:
             return Response({"error":str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+class CreateCategoryView(APIView):
+    def post(self, request):
+        try:
+            serializer = CategorySerializer(data=request.data)
+            if serializer.is_valid():
+                category = serializer.save()
+                return Response(ListCategorySerializer(category).data, status=status.HTTP_201_CREATED)
+            # Combine errors with custom message
+            return Response(
+                {"detail": "Data Already Exists.", "errors": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            print(f"CreateCategoryView Error: {e}")
+            return Response({"detail": "Something went wrong."}, status=status.HTTP_406_NOT_ACCEPTABLE)
+
+
+
+class EditCategoryView(APIView):
+    def put(self, request, id):
+        try:
+            try:
+                category = CourseCategory.objects.get(id=id)
+            except CourseCategory.DoesNotExist:
+                return Response({"detail": "Category Does Not Exist"}, status=status.HTTP_404_NOT_FOUND)
+
+            serializer = EditCategorySerializer(instance=category, data=request.data)
+            if serializer.is_valid():
+                serializer.save()
+                category_data = CourseCategory.objects.all()
+                return Response(ListCategorySerializer(category_data, many=True).data, status=status.HTTP_200_OK)
+            else:
+                return Response(
+                    {"detail": "Category Name Already Exists", "errors": serializer.errors},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except Exception as e:
+            print("EditCategoryView Error:", str(e))
+            return Response({"detail": "Error While Editing Category"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+class ListCategoryView(APIView):
+
+    def get(self, request):
+        try:
+            categorys = CourseCategory.objects.all()
+            serializer = ListCategorySerializer(categorys, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except:
+            return Response({"error": "Data does not exist"}, status=status.HTTP_404_NOT_FOUND)
+
+
+
+class CategoryStatusView(APIView):
+
+    def post(self, request):
+        try:
+            category_id = request.data.get('id')
+            print(f"category_id   {category_id}")
+            if not category_id:
+                return Response({"Error":"Id is Required"}, status=status.HTTP_400_BAD_REQUEST)
+            category = get_object_or_404(CourseCategory, id=category_id)
+
+            category.is_active = not category.is_active
+            category.save()
+            return Response({"message": "Status updated successfully", "status": category.is_active}, status=status.HTTP_200_OK)
+        except:
+            return Response({"Error": "Error While Chaning the status"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+def create_stripe_product_and_price(plan):
+    product = stripe.Product.create(name=plan.name)
+
+    interval = "month" if plan.plan_type == "MONTHLY" else "year"
+
+    price = stripe.Price.create(
+        unit_amount=int(plan.price * 100),  # in cents
+        currency="inr",
+        recurring={"interval": interval},
+        product=product.id
+    )
+
+    return price.id
+
+
+
+class CreatePlanView(APIView):
+
+    def post(self, request):
+        serializer = PlanSerializer(data=request.data)
+        if serializer.is_valid():
+            plan = serializer.save()
+            price_id = create_stripe_product_and_price(plan)
+            plan.stripe_price_id = price_id
+            plan.save()
+            return Response(PlanSerializer(plan).data, status=status.HTTP_201_CREATED)
+        else:
+            return Response(serializer.errors, status=400)
+
+
+
+class ListPlanView(APIView):
+
+    def get(self, request):
+        try:
+            plans = Plan.objects.all()
+            serializer = PlanListSerializer(plans, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except:
+            return Response({"error": "Data does not exist"}, status=status.HTTP_404_NOT_FOUND)
+
+
+
+class CreateCheckoutSessionView(APIView):
+    def post(self, request, plan_id):
+        plan = get_object_or_404(Plan, id=plan_id)
+        domain = "http://localhost:3000"
+
+        session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            line_items=[{
+                'price': plan.stripe_price_id,
+                'quantity': 1,
+            }],
+            mode='subscription',
+            success_url=f'{domain}/success?session_id={{CHECKOUT_SESSION_ID}}',
+            cancel_url=f'{domain}/cancel',
+            customer_email=request.user.email,
+            expand=["line_items"],
+        )
+
+        return Response({'checkout_url': session.url})
+
+
+
+class StripeWebhookView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        payload = request.body
+        sig_header = request.META.get('HTTP_STRIPE_SIGNATURE')
+        endpoint_secret = settings.STRIPE_WEBHOOK_SECRET
+
+        try:
+            event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
+        except ValueError:
+            return HttpResponse(status=400)
+        except stripe.error.SignatureVerificationError:
+            return HttpResponse(status=400)
+
+        
+        if event['type'] == 'checkout.session.completed':
+            session = event['data']['object']
+            customer_email = session.get('customer_email')
+            subscription_id = session.get('subscription')
+
+            try:
+                checkout_session = stripe.checkout.Session.retrieve(
+                    session['id'],
+                    expand=['line_items']
+                )
+
+                plan_price_id = checkout_session['line_items']['data'][0]['price']['id']
+                user = Accounts.objects.get(email=customer_email)
+                plan = Plan.objects.get(stripe_price_id=plan_price_id)
+
+                expires_on = now() + timedelta(days=30) if plan.plan_type == 'MONTHLY' else now() + timedelta(days=365)
+                tutor = TutorDetails.objects.get(account=user)
+                TutorSubscription.objects.update_or_create(
+                    tutor=tutor,
+                    defaults={
+                        'plan': plan,
+                        'subscribed_on': now(),
+                        'expires_on': expires_on,
+                        'is_active': True,
+                        'stripe_subscription_id': subscription_id,
+                        'stripe_customer_id': session.get('customer'),
+                    }
+                )
+                tutor.status = "verified"
+                tutor.save()
+                print("✅ TutorSubscription successfully created or updated")
+                print(f"✅ Subscription updated for: {user.email}")
+            except Exception as e:
+                print(f"⚠️ Error processing webhook: {e}")
+
+        
+        elif event['type'] == 'customer.subscription.deleted':
+            sub = event['data']['object']
+            try:
+                sub_id = sub['id']
+                TutorSubscription.objects.filter(stripe_subscription_id=sub_id).update(is_active=False)
+                print(f"❌ Subscription canceled: {sub_id}")
+            except:
+                pass
+
+        
+        elif event['type'] == 'customer.subscription.updated':
+            sub = event['data']['object']
+            sub_id = sub['id']
+            status = sub['status']
+
+            is_active = status == 'active'
+            TutorSubscription.objects.filter(stripe_subscription_id=sub_id).update(is_active=is_active)
+
+        return HttpResponse(status=200)  
