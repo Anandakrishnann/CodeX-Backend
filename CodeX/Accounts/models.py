@@ -6,8 +6,9 @@ from datetime import timedelta
 from random import randint
 from datetime import date
 from adminpanel.models import *
+from tutorpanel.models import Course, Lessons, Modules
 
-# Create your models here.
+# Create your models here.  
 
 
 class AccountsManager(BaseUserManager):
@@ -43,20 +44,20 @@ class AccountsManager(BaseUserManager):
 
 
 
-
 class Accounts(AbstractBaseUser):
     id = models.BigAutoField(primary_key=True)
     first_name = models.CharField(max_length=200, null=False)
     last_name = models.CharField(max_length=200, null=False)
     email = models.EmailField(max_length=200, unique=True)
-    phone = models.CharField(max_length=10, null=False)
-    leetcode_id = models.CharField(max_length=200)
+    phone = models.CharField(max_length=10, null=True)
     password = models.CharField(max_length=255, null=True)
     profile_picture = models.URLField(blank=True, null=True)
 
     created_at = models.DateField(auto_now_add=True)
     last_login = models.DateTimeField(auto_now=True, null=True, blank=True)
     isblocked = models.BooleanField(default=False)
+
+    google_verified = models.BooleanField(default=False)
 
     ROLE_CHOICES = [('user', 'User'), ('tutor', 'Tutor'), ('admin', 'Admin')]
     role = models.CharField(max_length=50, choices=ROLE_CHOICES, default='user')
@@ -74,9 +75,13 @@ class Accounts(AbstractBaseUser):
 
     def __str__(self):
         return f"{self.first_name} {self.last_name} ({self.role})"
+    
+    def full_name(self):
+        return f"{self.first_name} {self.last_name}"
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['first_name', 'last_name', 'phone', 'leetcode_id']
+
 
 
 class TutorDetails(models.Model):
@@ -93,6 +98,9 @@ class TutorDetails(models.Model):
     verification_file = models.URLField(blank=True, null=True)
     verification_video = models.URLField(blank=True, null=True)
 
+    review_count = models.IntegerField(default=0, null=True, blank=True)
+    rating = models.IntegerField(default=0, null=True, blank=True)
+
     STATUS_CHOICE = [('pending', 'Pending'), ('verified', 'Verified'), ('rejected', 'Rejected')]
     status = models.CharField(max_length=50, choices=STATUS_CHOICE, default="pending")
     
@@ -106,6 +114,7 @@ class TutorDetails(models.Model):
             today = date.today()
             return today.year - self.dob.year - ((today.month, today.day) < (self.dob.month, self.dob.day))
         return None  # Return None if DOB is not provided
+
 
 
 class TutorSubscription(models.Model):
@@ -123,6 +132,7 @@ class TutorSubscription(models.Model):
         return f"{self.tutor.account.email} - {self.plan.name}"
 
 
+
 class OTP(models.Model):
     user = models.ForeignKey('Accounts', on_delete=models.CASCADE)
     otp = models.CharField(max_length=500)
@@ -135,3 +145,62 @@ class OTP(models.Model):
     @staticmethod
     def generate_otp():
         return randint(100000, 999999)
+    
+
+
+class UserCourseEnrollment(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),        
+        ('progress', 'Progress'),
+        ('completed', 'Completed')     
+    ]
+    user = models.ForeignKey(Accounts, on_delete=models.CASCADE)
+    course = models.ForeignKey(Course, on_delete=models.CASCADE)
+    payment_id = models.CharField(max_length=500)
+    enrolled_on = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    progress = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    
+
+
+class ModuleProgress(models.Model):
+    STATUS_CHOICES = (
+        ('pending', 'Pending'),
+        ('progress', 'Progress'),
+        ('completed', 'Completed'),
+    )
+
+    user = models.ForeignKey(Accounts, on_delete=models.CASCADE)
+    module = models.ForeignKey(Modules, on_delete=models.CASCADE)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('user', 'module')
+
+    def __str__(self):
+        return f"{self.user.username} - {self.module.title} - {self.status}"
+    
+    
+
+class LessonProgress(models.Model):
+    STATUS_CHOICES = (
+        ('pending', 'Pending'),
+        ('progress', 'Progress'),
+        ('completed', 'Completed'),
+    )
+    
+    user = models.ForeignKey(Accounts, on_delete=models.CASCADE)
+    lesson = models.ForeignKey(Lessons, on_delete=models.CASCADE)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed = models.BooleanField(default=False)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('user', 'lesson')
+
+
+

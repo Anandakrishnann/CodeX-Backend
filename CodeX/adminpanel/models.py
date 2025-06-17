@@ -14,9 +14,9 @@ class TutorApplications(models.Model):
     about = models.TextField(null=True, blank=True)
 
     # Store both files in Cloudinary
-    profile_picture = models.URLField(blank=True, null=True)
-    verification_file = models.URLField(blank=True, null=True)  # Store Cloudinary URL
-    verification_video = models.URLField(blank=True, null=True)  
+    profile_picture = models.URLField(blank=True, null=True, max_length=500)
+    verification_file = models.URLField(blank=True, null=True, max_length=500)  # Store Cloudinary URL
+    verification_video = models.URLField(blank=True, null=True, max_length=500)  
 
     created_at = models.DateTimeField(auto_now_add=True) 
     STATUS_CHOICES = [('pending', 'Pending'), ('accepted', 'Accepted'), ('rejected', 'Rejected')]

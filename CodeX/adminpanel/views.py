@@ -16,6 +16,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpResponse
 from django.utils.timezone import now, timedelta
 from rest_framework.permissions import AllowAny
+from tutorpanel.models import *
+import cloudinary.uploader
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 endpoint_secret = settings.STRIPE_WEBHOOK_SECRET
@@ -28,7 +30,7 @@ class ListUsers(APIView):
         try:
             users = User.objects.filter(role="user")
 
-            user_data = [{"id": user.id, "email": user.email, "first_name": user.first_name, "last_name":user.last_name, "leetcode_id":user.leetcode_id, "phone":user.phone, "status": bool(user.isblocked), "role":user.role } for user in users]
+            user_data = [{"id": user.id, "email": user.email, "first_name": user.first_name, "last_name":user.last_name, "phone":user.phone, "status": bool(user.isblocked), "role":user.role } for user in users]
 
             response = Response({"users": user_data}, status=200)  # ✅ Ensure we return a Response
             print(response)  # Optional: Debugging
@@ -48,7 +50,7 @@ class ListTutors(APIView):
             # Get the associated Accounts objects from each subscription
             accounts = [sub.tutor.account for sub in subscribed_tutors]
 
-            tutor_data = [{"id": tutor.id, "email": tutor.email, "first_name": tutor.first_name, "last_name":tutor.last_name, "leetcode_id":tutor.leetcode_id, "phone":tutor.phone, "status": bool(tutor.isblocked), "role":tutor.role } for tutor in accounts]
+            tutor_data = [{"id": tutor.id, "email": tutor.email, "first_name": tutor.first_name, "last_name":tutor.last_name, "phone":tutor.phone, "status": bool(tutor.isblocked), "role":tutor.role } for tutor in accounts]
 
             return Response({"users": tutor_data}, status=status.HTTP_200_OK)
 
@@ -102,12 +104,39 @@ class TutorApplicationView(APIView):
     parser_classes = (MultiPartParser, FormParser)
 
     def post(self, request):
-        print(f"data from frontend : {request.data}")
-        serializer = TutorApplicationSerializer(data=request.data, context={"request": request})
+        data = request.data.dict()  # <-- Change here
+
+        # Convert to strings for these fields (to prevent type errors)
+        for field in ['full_name', 'email', 'phone', 'education', 'expertise', 'occupation', 'experience', 'about', 'dob']:
+            if field in data:
+                data[field] = str(data[field])
+        
+        # Upload files to Cloudinary
+        try:
+            if 'profile_picture' in request.FILES:
+                profile_pic = request.FILES['profile_picture']
+                upload_result = cloudinary.uploader.upload(profile_pic, folder="profile_picture", resource_type="image")
+                data['profile_picture'] = upload_result.get('secure_url')
+
+            if 'verification_file' in request.FILES:
+                verification_file = request.FILES['verification_file']
+                upload_result = cloudinary.uploader.upload(verification_file, folder="verification_docs", resource_type="raw")
+                data['verification_file'] = upload_result.get('secure_url')
+
+            if 'verification_video' in request.FILES:
+                verification_video = request.FILES['verification_video']
+                upload_result = cloudinary.uploader.upload(verification_video, folder="verification_videos", resource_type="video")
+                data['verification_video'] = upload_result.get('secure_url')
+        except Exception as e:
+            return Response({"error": "File upload failed", "details": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = TutorApplicationSerializer(data=data, context={"request": request})
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            print(serializer.errors)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 
@@ -481,3 +510,324 @@ class StripeWebhookView(APIView):
             TutorSubscription.objects.filter(stripe_subscription_id=sub_id).update(is_active=is_active)
 
         return HttpResponse(status=200)  
+    
+
+
+class CourseRequestsView(APIView):
+
+    def get(self, request):
+        try:
+            course_requests = Course.objects.exclude(status="accepted")
+            data = []
+
+            for reqeusts in course_requests:
+                data.append({
+                    "id":reqeusts.id,
+                    "name": reqeusts.name,
+                    "created_by":reqeusts.created_by.full_name,
+                    "category": reqeusts.category_id.name if reqeusts.category_id else None,
+                    "category_id":reqeusts.category_id.id if reqeusts.category_id else None,
+                    "title": reqeusts.title,
+                    "description": reqeusts.description,
+                    "requirements": reqeusts.requirements,
+                    "benefits": reqeusts.benefits,
+                    "price": reqeusts.price,
+                    "created_at": reqeusts.created_at,
+                    "is_active": reqeusts.is_active,
+                    "level": reqeusts.level,
+                    "status":reqeusts.status,
+                })
+
+            return Response(data, status=status.HTTP_200_OK)
+        except:
+            return Response({"error":"Error While Fetching Course Request"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+class CourseStatusView(APIView):
+
+    def post(self, requests, id):
+        try:
+            course = get_object_or_404(Course, id=id)
+
+            if not course:
+                return Response({"Error":"Course Does Not Exists"}, status=status.HTTP_400_BAD_REQUEST)
+            
+            course.is_active = not course.is_active
+            course.save()
+            return Response({"message": "Status updated successfully", "status": course.is_active}, status=status.HTTP_200_OK)
+        except:
+            return Response({"Error": "Error While Updating the status"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+class ListCoursesView(APIView):
+
+    def get(self, requests):
+        try:
+            course_requests = Course.objects.filter(status="accepted")
+            data = []
+
+            for reqeusts in course_requests:
+                data.append({
+                    "id":reqeusts.id,
+                    "name": reqeusts.name,
+                    "created_by":reqeusts.created_by.full_name,
+                    "category": reqeusts.category_id.name if reqeusts.category_id else None,
+                    "category_id":reqeusts.category_id.id if reqeusts.category_id else None,
+                    "title": reqeusts.title,
+                    "description": reqeusts.description,
+                    "requirements": reqeusts.requirements,
+                    "benefits": reqeusts.benefits,
+                    "price": reqeusts.price,
+                    "created_at": reqeusts.created_at,
+                    "is_active": reqeusts.is_active,
+                    "level":reqeusts.level,
+                    "status":reqeusts.status,
+                })
+
+            return Response(data, status=status.HTTP_200_OK)
+        except:
+            return Response({"error":"Error While Fetching Course Request"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class CoureseStatusView(APIView):
+    
+    def post(self, request, id):
+        try:
+            course = get_object_or_404(Course, id=id)
+
+            if not course:
+                return Response({"Error":"Course Does Not Exists"}, status=status.HTTP_400_BAD_REQUEST)
+            
+            course.is_active = not course.is_active
+            course.save()
+            return Response({"message": "Status updated successfully", "status": course.is_active}, status=status.HTTP_200_OK)
+        except:
+            return Response({"Error": "Error While Updating the status"}, status=status.HTTP_400_BAD_REQUEST)
+        
+
+
+class AcceptCourseRequestView(APIView):
+
+    def post(self, request, courseId):
+        try:
+            course = get_object_or_404(Course, id=courseId)
+
+            if not course:
+                return Response({"error":"Course Not Found"}, status=status.HTTP_404_NOT_FOUND)
+            
+            course.status = "accepted"
+            course.is_active = True
+            course.save()
+            return Response({})
+        except:
+            return Response({"Error": "Error While Accepting Course Request"}, status=status.HTTP_400_BAD_REQUEST)
+        
+
+class RejectCourseRequestView(APIView):
+
+    def post(self, request, courseId):
+        try:
+            course = get_object_or_404(Course, id=courseId)
+
+            if not course:
+                return Response({"error":"Course Not Found"}, status=status.HTTP_404_NOT_FOUND)
+            
+            course.status = "rejected"
+            course.is_active = False
+            course.save()
+            return Response({})
+        except:
+            return Response({"Error": "Error While Rjecting Course Request"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+class AcceptModuleView(APIView):
+
+    def post(self, request, id):
+        try:
+            module = get_object_or_404(Modules, id=id)
+
+            if not module:
+                return Response({"error":"Module Not Found"}, status=status.HTTP_404_NOT_FOUND)
+            
+            module.status = "accepted"
+            module.is_active = True
+            module.save()
+            return Response({})
+        except:
+            return Response({"Error": "Error While Accepting Course Request"}, status=status.HTTP_400_BAD_REQUEST)
+        
+
+
+
+class RejectModuleView(APIView):
+
+    def post(self, request, id):
+        try:
+            module = get_object_or_404(Modules, id=id)
+
+            if not module:
+                return Response({"error":"Module Not Found"}, status=status.HTTP_404_NOT_FOUND)
+            
+            module.status = "rejected"
+            module.is_active = False
+            module.save()
+            return Response({})
+        except:
+            return Response({"Error": "Error While Accepting Course Request"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ListCourseModulesView(APIView):
+    def get(self, request, id):
+        try:
+            try:
+                course = get_object_or_404(Course, id=id)
+            except Course.DoesNotExist:
+                return Response({"error": "Course Not Found"}, status=status.HTTP_404_NOT_FOUND)
+            
+            try:
+                modules = Modules.objects.filter(course=course)
+            except:
+                return Response({"error": "Modules Not Found"}, status=status.HTTP_404_NOT_FOUND)
+
+            serializer = CourseModuleSerializer(modules, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            print(f"Error fetching course overview: {e}")
+            return Response({"error": "Something went wrong"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class CourseOverView(APIView):
+
+    def get(self, request, id):
+        try:
+            try:
+                course = get_object_or_404(Course, id=id)
+            except Course.DoesNotExist:
+                return Response({"error": "Course Not Found"}, status=status.HTTP_404_NOT_FOUND)
+
+            return Response(CourseRequestSerializer(course).data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            print(f"Error fetching course overview: {e}")
+            return Response({"error": "Something went wrong"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ModuleDetailView(APIView):
+
+    def get(self, request, id):
+        try:
+            module = get_object_or_404(Modules, id=id)
+
+            if not module:
+                return Response({"error":"Module Does not found"}, status=status.HTTP_404_NOT_FOUND)
+            
+            return Response(CourseModuleSerializer(module).data, status=status.HTTP_200_OK)
+        except:
+            return Response({"error":"Error While Fetching Module"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+class ModuleStatusView(APIView):
+
+    def post(self, request, id):
+        try:
+            module = get_object_or_404(Modules, id=id)
+
+            if not module:
+                return Response({"error":"Module Not Found"}, status=status.HTTP_404_NOT_FOUND)
+            
+            module.is_active = not module.is_active
+            module.save()
+            return Response({"detail":"Status Changed Successfully"}, status=status.HTTP_200_OK)
+        except:
+            return Response({"error":"Error While Changing Module Status"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+class ListCourseLessonView(APIView):
+
+    def get(self, request, id):
+        try:
+            print(id)
+            module = get_object_or_404(Modules, id=id)
+            lessons = Lessons.objects.filter(module=module)
+            
+            serializer = LessonOverviewSerializer(lessons, many=True)
+            print(serializer)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        except Modules.DoesNotExist:
+            return Response({"error": "Module Not Found"}, status=status.HTTP_404_NOT_FOUND)
+
+        except Lessons.DoesNotExist:
+            return Response({"error": "Lessons Not Found"}, status=status.HTTP_404_NOT_FOUND)
+
+        except Exception as e:
+            return Response({"error": f"Error While Fetching Lessons: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class AcceptLessonView(APIView):
+
+    def post(self, request, lessonId):
+        try:
+            lesson = get_object_or_404(Lessons, id=lessonId)
+            if not lesson:
+                return Response({"error":"Lesson Not Found"}, status=status.HTTP_404_NOT_FOUND)
+            lesson.status = "accepted"
+            lesson.is_active = True
+            lesson.save()
+            return Response({"detail":"Lesson Accepted Successfully"}, status=status.HTTP_200_OK) 
+        except:
+            return Response({"error":"Error While Accepting Lesson"}, status=status.HTTP_400_BAD_REQUEST)
+        
+
+
+class RejectLessonView(APIView):
+
+    def post(self, request, lessonId):
+        try:
+            lesson = get_object_or_404(Lessons, id=lessonId)
+            if not lesson:
+                return Response({"error":"Lesson Not Found"}, status=status.HTTP_404_NOT_FOUND)
+            lesson.status = "rejected"
+            lesson.is_active = False
+            lesson.save()
+            return Response({"detail":"Lesson Rejected Successfully"}, status=status.HTTP_200_OK) 
+        except:
+            return Response({"error":"Error While Rejecting Lesson"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+class LessonStatusView(APIView):
+
+    def post(self, request, lessonId):
+        try:
+            lesson = get_object_or_404(Lessons, id=lessonId)
+
+            if not lesson:
+                return Response({"error":"Lesson Not Found"}, status=status.HTTP_404_NOT_FOUND)
+            
+            lesson.is_active = not lesson.is_active
+            lesson.save()
+            return Response({"detail":"Status Changed Successfully"}, status=status.HTTP_200_OK)
+        except: 
+            return Response({"error":"Error While Changing Lesson Status"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+class LessonOverview(APIView):
+
+    def get(self, request, lessonId):
+        try:
+            lesson = get_object_or_404(Lessons, id=lessonId)
+            
+            if not lesson:
+                return Response({"error":"Lesson Not Found"}, status=status.HTTP_404_NOT_FOUND)
+
+            return Response(LessonOverviewSerializer(lesson).data, status=status.HTTP_200_OK)
+        except:
+            return Response({"error":"Error While Fetching Lesson Details"}, status=status.HTTP_400_BAD_REQUEST)

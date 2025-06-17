@@ -10,6 +10,9 @@ class IsSubscribed(BasePermission):
         user = request.user
         if not user.is_authenticated:
             return False
+        
+        if not user.role == "tutor":
+            return False
 
         try:
             subscription = TutorSubscription.objects.get(tutor__account=user)

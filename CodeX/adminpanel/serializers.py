@@ -1,14 +1,18 @@
 from rest_framework import serializers
 from .models import TutorApplications
 from Accounts.models import *
+from tutorpanel.models import *
 
 class TutorApplicationSerializer(serializers.ModelSerializer):
     class Meta:
         model = TutorApplications
         fields = '__all__'
+        
+    def validate_email(self, value):
+        if TutorApplications.objects.filter(email=value).exists():
+            raise serializers.ValidationError("Email already exists.")
+        return value
 
-    def create(self, validated_data):
-        return TutorApplications.objects.create(**validated_data)
 
 
 
@@ -18,6 +22,7 @@ class TutorSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+
 class EditUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = Accounts
@@ -25,6 +30,7 @@ class EditUserSerializer(serializers.ModelSerializer):
     
     def update(self, instance, validated_data):
         return super().update(instance, validated_data)
+
 
 
 class PlanSerializer(serializers.ModelSerializer):
@@ -40,6 +46,8 @@ class PlanListSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'plan_type', 'plan_category', 'price', 'description']
 
 
+
+
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = CourseCategory
@@ -49,6 +57,7 @@ class CategorySerializer(serializers.ModelSerializer):
         if CourseCategory.objects.filter(name__iexact=value).exists():
             raise serializers.ValidationError("Category with this name already exists.")
         return value
+
 
 
 class EditCategorySerializer(serializers.ModelSerializer):
@@ -62,7 +71,28 @@ class EditCategorySerializer(serializers.ModelSerializer):
         return value
 
 
+
 class ListCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = CourseCategory
         fields = ['id', 'name', 'description', 'is_active', 'created_at']
+
+
+
+class CourseRequestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Course
+        fields = "__all__"     
+
+
+class CourseModuleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Modules
+        fields = "__all__"
+
+
+
+class LessonOverviewSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Lessons
+        fields = "__all__"      

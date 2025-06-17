@@ -6,7 +6,7 @@ from .models import *
 class EditUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = Accounts
-        fields = ['first_name', 'last_name', 'phone', 'leetcode_id'] 
+        fields = ['first_name', 'last_name', 'phone'] 
 
     def update(self, instance, validated_data):
         for attr, value in validated_data.items():
@@ -15,10 +15,11 @@ class EditUserSerializer(serializers.ModelSerializer):
         return instance
 
 
+
 class AccountSerializer(serializers.ModelSerializer):
     class Meta:
         model = Accounts
-        fields = ['first_name', 'last_name', 'phone', 'leetcode_id']
+        fields = ['first_name', 'last_name', 'phone']
 
 
 
@@ -66,30 +67,113 @@ class CombinedUserProfileSerializer(serializers.Serializer):
 
 
 
-
 class CreateCourseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Course
-        fields = ["name", "title", "description", "requirements", "benefits", "price"]
+        fields = '__all__'
+        read_only_fields = ['created_by', 'category_id']
 
-    def validate_name(self, value):
-        if Course.objects.filter(name__iexact=value).exists():
-            raise serializers.ValidationError("Course with this name already exists.")
-        return value
+    def create(self, validated_data):
+        category = self.context['category']
+        tutor = self.context['tutor']
+        course = Course.objects.create(
+            **validated_data,
+            created_by=tutor,
+            category_id=category
+        )
+        return course
+
 
 
 class EditCourseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Course
-        fields = ['name', "category_id", "title", "description", "requirements", "benefits", "price"]
-        
+        fields = ['name', 'category_id', 'title', 'level', 'description', 'requirements', 'benefits', 'price']
+
     def validate_name(self, value):
         if Course.objects.filter(name__iexact=value).exclude(id=getattr(self.instance, 'id', None)).exists():
-            raise serializers.ValidationError("Category with this name already exists.")
+            raise serializers.ValidationError("Course with this name already exists.")
         return value
 
 
-class ListCourseSeializer(serializers.ModelSerializer):
+
+class ListCourseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Course
-        fields = ["id", 'name', "category_id", "title", "description", "requirements", "benefits", "price"]
+        fields = '__all__'
+
+
+
+class CreateModuleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Modules
+        fields = '__all__'
+        read_only_fields = ['created_by', 'course']
+
+    def create(self, validated_data):
+        course = self.context['course']
+        tutor = self.context['tutor']
+        module = Modules.objects.create(
+            **validated_data,
+            created_by=tutor,
+            course=course
+        )
+        return module
+
+
+
+class ListModuleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Modules
+        fields = '__all__'
+
+
+
+class EditModuleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Modules
+        fields = ["title", "description"]
+        
+    def validate_name(self, value):
+        if Modules.objects.filter(title__iexact=value).exclude(id=getattr(self.instance, 'id', None)).exists():
+            raise serializers.ValidationError("Module with this name already exists.")
+        return value
+
+
+
+class CourseDetailsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Course
+        fields = "__all__"
+
+
+
+class CourseModuleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Modules
+        fields = "__all__"
+        
+
+
+class CourseLessonsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Lessons
+        fields = "__all__"
+
+
+
+class CreateLessonSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Lessons
+        fields = '__all__'
+        read_only_fields = ['created_by', 'module']
+
+    def create(self, validated_data):
+        module = self.context['module']
+        tutor = self.context['tutor']
+        lessons = Lessons.objects.create(
+            **validated_data,
+            created_by=tutor,
+            module=module
+        )
+        return lessons

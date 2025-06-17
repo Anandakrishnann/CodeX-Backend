@@ -4,11 +4,13 @@ import hashlib
 from django.core.mail import send_mail
 from django.contrib.auth import authenticate
 import os
+from tutorpanel.models import *
+from adminpanel.models import *
 
 class UserRegisterSerializer(serializers.ModelSerializer):
     class Meta:
         model = Accounts
-        fields = ["first_name", "last_name", "email", "leetcode_id", "phone", "password"]
+        fields = ["first_name", "last_name", "email", "phone", "password"]
         extra_kwargs = {"password": {"write_only": True}}
 
     def create(self, validated_data):
@@ -57,7 +59,6 @@ class TutorDetailsSerializer(serializers.ModelSerializer):
         account.role = 'tutor'
         account.save()
         return tutor_details
-
 
 
 
@@ -141,10 +142,11 @@ class ResendOTPSerializer(serializers.Serializer):
         return {"message": "OTP has been resent to your email."}
     
 
+
 class EditUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = Accounts
-        fields = ['first_name', 'last_name', 'phone', 'leetcode_id']
+        fields = ['first_name', 'last_name', 'phone']
 
     def update(self, instance, validated_data):
         for attr, value in validated_data.items():
@@ -153,7 +155,45 @@ class EditUserSerializer(serializers.ModelSerializer):
         return instance
 
 
+
+class TutorDetailsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TutorDetails
+        fields = '__all__'
+
+
+
 class CourseCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = CourseCategory
         fields = '__all__'
+
+
+
+class CourseListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Course
+        fields = '__all__'
+
+
+
+class CourseModuleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Modules
+        fields = '__all__'
+        
+        
+        
+class CourseLessonSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Lessons
+        fields = '__all__'
+
+
+
+class UserCourseEnrollmentSerializer(serializers.ModelSerializer):
+    course = CourseListSerializer()
+
+    class Meta:
+        model = UserCourseEnrollment
+        fields = ['id', 'course', 'status', 'progress', 'enrolled_on']

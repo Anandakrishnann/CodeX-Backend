@@ -13,6 +13,9 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 from pathlib import Path
 from datetime import timedelta
 import os
+import cloudinary
+import cloudinary.uploader
+import cloudinary.api
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -45,6 +48,7 @@ INSTALLED_APPS = [
     'Accounts',
     'adminpanel',
     'tutorpanel',
+    'chat',
 ]
 
 MIDDLEWARE = [
@@ -60,8 +64,10 @@ MIDDLEWARE = [
 
 
 
+
 CORS_ALLOW_CREDENTIALS = True  
 CORS_ALLOW_ALL_ORIGINS = False  # Disable for security
+
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
@@ -95,7 +101,7 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": False,  # Avoid generating new refresh tokens on each refresh
     "BLACKLIST_AFTER_ROTATION": False, 
@@ -127,6 +133,21 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'CodeX.wsgi.application'
+
+
+
+INSTALLED_APPS += ['channels']
+
+ASGI_APPLICATION = 'Codex.asgi.application'
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": [('127.0.0.1', 6379)],
+        },
+    },
+} 
 
 
 # Database
@@ -197,6 +218,23 @@ STATIC_URL = 'static/'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+
+CLOUDINARY_CLOUD_NAME = os.getenv('CLOUDINARY_CLOUD_NAME')
+CLOUDINARY_API_KEY = os.getenv('CLOUDINARY_API_KEY')
+CLOUDINARY_API_SECRET = os.getenv('CLOUDINARY_API_SECRET')
+
+cloudinary.config(
+    cloud_name=CLOUDINARY_CLOUD_NAME,
+    api_key=CLOUDINARY_API_KEY,
+    api_secret=CLOUDINARY_API_SECRET,
+    secure=True,
+)
+
+PAYPAL_CLIENT_ID = os.getenv("PAYPAL_CLIENT_ID")
+PAYPAL_SECRET_KEY = os.getenv("PAYPAL_SECRET_KEY")  # Match your variable name
+PAYPAL_OAUTH_URL = os.getenv("PAYPAL_OAUTH_URL")
+PAYPAL_ORDER_URL = os.getenv("PAYPAL_ORDER_URL")
 
 # Ensure files are allowed
 DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100MB limit
