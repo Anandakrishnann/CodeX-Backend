@@ -80,13 +80,13 @@ class Accounts(AbstractBaseUser):
         return f"{self.first_name} {self.last_name}"
 
     USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS = ['first_name', 'last_name', 'phone', 'leetcode_id']
+    REQUIRED_FIELDS = ['first_name', 'last_name', 'phone']
 
 
 
 class TutorDetails(models.Model):
     id = models.BigAutoField(primary_key=True)
-    account = models.ForeignKey(Accounts, related_name="tutor_details", on_delete=models.CASCADE)
+    account = models.OneToOneField(Accounts, related_name="tutor_details", on_delete=models.CASCADE)
     full_name = models.CharField(max_length=255)
     dob = models.DateField()
     about = models.TextField(null=True, blank=True)

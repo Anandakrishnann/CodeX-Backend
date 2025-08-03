@@ -1,4 +1,6 @@
 from rest_framework import serializers # type: ignore
+from datetime import datetime, timedelta
+from rest_framework.exceptions import ValidationError
 from Accounts.models import *
 from .models import *
 
@@ -177,3 +179,28 @@ class CreateLessonSerializer(serializers.ModelSerializer):
             module=module
         )
         return lessons
+    
+
+
+class SheduleMeetingSerializer(serializers.Serializer):
+    date = serializers.DateField()
+    time = serializers.TimeField()
+    limit = serializers.IntegerField(min_value=1)
+    
+    def validate(self, data):
+        scheduled_datetime = datetime.combine(data["date"], data["time"])
+        if scheduled_datetime < datetime.now() + timedelta(minutes=30):
+            raise ValidationError("Meeting must be scheduled at least 30 minutes in the future.")
+        return data
+    
+
+
+class SheduledMeetingsSerializer(serializers.ModelSerializer):
+    tutor_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Meetings
+        fields = ['id', 'tutor', 'date', 'time', 'limit', 'left', 'created_at', 'tutor_name']
+
+    def get_tutor_name(self, obj):
+        return obj.tutor.full_name if obj.tutor else None

@@ -9,7 +9,6 @@ from rest_framework.permissions import IsAuthenticated
 from django.http import JsonResponse
 import traceback
 from Accounts.models import *
-import stripe # type: ignore
 from django.conf import settings
 from .serializers import *
 from django.views.decorators.csrf import csrf_exempt
@@ -19,25 +18,20 @@ from rest_framework.permissions import AllowAny
 from tutorpanel.models import *
 import cloudinary.uploader
 
-stripe.api_key = settings.STRIPE_SECRET_KEY
-endpoint_secret = settings.STRIPE_WEBHOOK_SECRET
 
-User = get_user_model()
 
 
 class ListUsers(APIView):
     def get(self, request):
         try:
-            users = User.objects.filter(role="user")
+            users = Accounts.objects.filter(role="user")
 
             user_data = [{"id": user.id, "email": user.email, "first_name": user.first_name, "last_name":user.last_name, "phone":user.phone, "status": bool(user.isblocked), "role":user.role } for user in users]
 
-            response = Response({"users": user_data}, status=200)  # ✅ Ensure we return a Response
-            print(response)  # Optional: Debugging
-
-            return response 
+            return Response({"users": user_data}, status=200)  # ✅ Ensure we return a Response
+            
         except:
-            return Response({"Unauthorized": "Token expired"}, status=401)
+            return Response({"Unauthorized": "Token expired"}, status=406)
 
 
 
@@ -373,21 +367,6 @@ class CategoryStatusView(APIView):
 
 
 
-def create_stripe_product_and_price(plan):
-    product = stripe.Product.create(name=plan.name)
-
-    interval = "month" if plan.plan_type == "MONTHLY" else "year"
-
-    price = stripe.Price.create(
-        unit_amount=int(plan.price * 100),  # in cents
-        currency="inr",
-        recurring={"interval": interval},
-        product=product.id
-    )
-
-    return price.id
-
-
 
 class CreatePlanView(APIView):
 
@@ -412,104 +391,7 @@ class ListPlanView(APIView):
             serializer = PlanListSerializer(plans, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except:
-            return Response({"error": "Data does not exist"}, status=status.HTTP_404_NOT_FOUND)
-
-
-
-class CreateCheckoutSessionView(APIView):
-    def post(self, request, plan_id):
-        plan = get_object_or_404(Plan, id=plan_id)
-        domain = "http://localhost:3000"
-
-        session = stripe.checkout.Session.create(
-            payment_method_types=['card'],
-            line_items=[{
-                'price': plan.stripe_price_id,
-                'quantity': 1,
-            }],
-            mode='subscription',
-            success_url=f'{domain}/success?session_id={{CHECKOUT_SESSION_ID}}',
-            cancel_url=f'{domain}/cancel',
-            customer_email=request.user.email,
-            expand=["line_items"],
-        )
-
-        return Response({'checkout_url': session.url})
-
-
-
-class StripeWebhookView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
-
-    def post(self, request, *args, **kwargs):
-        payload = request.body
-        sig_header = request.META.get('HTTP_STRIPE_SIGNATURE')
-        endpoint_secret = settings.STRIPE_WEBHOOK_SECRET
-
-        try:
-            event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
-        except ValueError:
-            return HttpResponse(status=400)
-        except stripe.error.SignatureVerificationError:
-            return HttpResponse(status=400)
-
-        
-        if event['type'] == 'checkout.session.completed':
-            session = event['data']['object']
-            customer_email = session.get('customer_email')
-            subscription_id = session.get('subscription')
-
-            try:
-                checkout_session = stripe.checkout.Session.retrieve(
-                    session['id'],
-                    expand=['line_items']
-                )
-
-                plan_price_id = checkout_session['line_items']['data'][0]['price']['id']
-                user = Accounts.objects.get(email=customer_email)
-                plan = Plan.objects.get(stripe_price_id=plan_price_id)
-
-                expires_on = now() + timedelta(days=30) if plan.plan_type == 'MONTHLY' else now() + timedelta(days=365)
-                tutor = TutorDetails.objects.get(account=user)
-                TutorSubscription.objects.update_or_create(
-                    tutor=tutor,
-                    defaults={
-                        'plan': plan,
-                        'subscribed_on': now(),
-                        'expires_on': expires_on,
-                        'is_active': True,
-                        'stripe_subscription_id': subscription_id,
-                        'stripe_customer_id': session.get('customer'),
-                    }
-                )
-                tutor.status = "verified"
-                tutor.save()
-                print("✅ TutorSubscription successfully created or updated")
-                print(f"✅ Subscription updated for: {user.email}")
-            except Exception as e:
-                print(f"⚠️ Error processing webhook: {e}")
-
-        
-        elif event['type'] == 'customer.subscription.deleted':
-            sub = event['data']['object']
-            try:
-                sub_id = sub['id']
-                TutorSubscription.objects.filter(stripe_subscription_id=sub_id).update(is_active=False)
-                print(f"❌ Subscription canceled: {sub_id}")
-            except:
-                pass
-
-        
-        elif event['type'] == 'customer.subscription.updated':
-            sub = event['data']['object']
-            sub_id = sub['id']
-            status = sub['status']
-
-            is_active = status == 'active'
-            TutorSubscription.objects.filter(stripe_subscription_id=sub_id).update(is_active=is_active)
-
-        return HttpResponse(status=200)  
+            return Response({"error": "Data does not exist"}, status=status.HTTP_404_NOT_FOUND) 
     
 
 

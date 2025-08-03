@@ -197,3 +197,15 @@ class UserCourseEnrollmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserCourseEnrollment
         fields = ['id', 'course', 'status', 'progress', 'enrolled_on']
+        
+        
+
+class SheduledMeetingsSerializer(serializers.ModelSerializer):
+    tutor_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Meetings
+        fields = ['id', 'tutor', 'date', 'time', 'limit', 'left', 'created_at', 'tutor_name']
+
+    def get_tutor_name(self, obj):
+        return obj.tutor.full_name if obj.tutor else None

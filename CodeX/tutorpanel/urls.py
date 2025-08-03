@@ -4,6 +4,7 @@ from .views import *
 
 urlpatterns = [
     path('tutor_profile/', TutorProfileView.as_view(), name='tutor_profile'),
+    path('tutor_subscribed/', TutorSubscribedCheckView.as_view(), name='tutor_subscribed'),
     path('edit_tutor/', EditTutorView.as_view(), name='edit_tutor'),
     path('profile_picture/', UploadTutorProfilePictureView.as_view(), name='profile_picture/'),
     path('create_course/', CreateCourseView.as_view(), name='create_course'),
@@ -21,5 +22,8 @@ urlpatterns = [
     path('edit_lesson/<str:pk>/', EditLessonView.as_view(), name='edit_lesson`'),
     path('lesson_status/<str:lessonId>/', LessonStatusView.as_view(), name='lesson_status'),
     path('set_draft/<str:id>/', SetCourseDraftView.as_view(), name='set_draft'),
+    path('shedule-meeting/', SheduleMeetingView.as_view(), name='shedule-meeting'),
+    path('sheduled-meetings/', SheduledMeetings.as_view(), name='sheduled-meetings/'),
+    path('recent-meetings/', RecentMeetingsView.as_view(), name='recent-meetings/'),
     path('get_levels/', get_course_levels, name='get_levels'),
 ]

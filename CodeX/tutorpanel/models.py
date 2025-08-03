@@ -2,6 +2,7 @@ from django.db import models
 from adminpanel.models import CourseCategory
 
 
+
 # Create your models here.
 
 
@@ -59,3 +60,34 @@ class Lessons(models.Model):
     
     created_at = models.DateField(auto_now=True)    
     is_active = models.BooleanField(default=False)
+
+
+
+class Meetings(models.Model):
+    tutor = models.ForeignKey("Accounts.TutorDetails", on_delete=models.SET_NULL, null=True)
+    date = models.DateField()
+    time = models.TimeField()
+    limit = models.PositiveIntegerField(help_text="Max number of participants or bookings for this time slot")
+    left = models.PositiveBigIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_completed = models.BooleanField(default=False)
+    
+
+    def __str__(self):
+        return f"Meeting with Tutor {self.tutor.id} on {self.date} at {self.time}"
+
+    def current_booking_count(self):
+        return self.bookings.count() 
+
+
+
+class MeetingBooking(models.Model):
+    meeting = models.ForeignKey(Meetings, related_name='bookings', on_delete=models.CASCADE)
+    user = models.ForeignKey("Accounts.Accounts", on_delete=models.CASCADE)
+    booked_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['meeting', 'user'] 
+
+    def __str__(self):
+        return f"{self.user.email} booked meeting {self.meeting.id}"

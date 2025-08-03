@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'Accounts',
     'adminpanel',
     'tutorpanel',
+    'channels',
     'chat',
 ]
 
@@ -135,19 +136,16 @@ TEMPLATES = [
 WSGI_APPLICATION = 'CodeX.wsgi.application'
 
 
-
-INSTALLED_APPS += ['channels']
-
-ASGI_APPLICATION = 'Codex.asgi.application'
+ASGI_APPLICATION = 'CodeX.asgi.application'
 
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {
-            "hosts": [('127.0.0.1', 6379)],
+            'hosts': [('127.0.0.1', 6379)],  # Update with your Redis server details
         },
     },
-} 
+}
 
 
 # Database
@@ -171,12 +169,11 @@ EMAIL_PORT = os.getenv('EMAIL_PORT')
 EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS')
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
-print(f"EMAIL_HOST_PASSWORD {EMAIL_HOST_PASSWORD}")
 
 
 STRIPE_PUBLIC_KEY = os.getenv('STRIPE_PUBLIC_KEY')
 STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY')
-STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET')
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
 
 # Password validation
@@ -238,6 +235,16 @@ PAYPAL_ORDER_URL = os.getenv("PAYPAL_ORDER_URL")
 
 # Ensure files are allowed
 DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100MB limit
+
+
+# Celery
+CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+
+ZEGOCLOUD_APP_ID = os.getenv("ZEGOCLOUD_APP_ID")
+ZEGOCLOUD_SECRET = os.getenv("ZEGOCLOUD_SECRET")
+
 
 
 # Default primary key field type

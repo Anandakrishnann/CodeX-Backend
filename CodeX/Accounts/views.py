@@ -39,8 +39,18 @@ from django.http import HttpResponse, Http404
 from datetime import datetime
 from io import BytesIO
 import logging
+import stripe # type: ignore
+import traceback
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 
 logger = logging.getLogger(__name__)
+
+User = get_user_model()
+
+stripe.api_key = settings.STRIPE_SECRET_KEY
+endpoint_secret = settings.STRIPE_WEBHOOK_SECRET
 
 User = get_user_model()
 
@@ -730,6 +740,136 @@ class CourseDetailsView(APIView):
 
 
 
+def create_stripe_product_and_price(plan):
+    product = stripe.Product.create(name=plan.name)
+
+    interval = "month" if plan.plan_type == "MONTHLY" else "year"
+
+    price = stripe.Price.create(
+        unit_amount=int(plan.price * 100),  # in cents
+        currency="inr",
+        recurring={"interval": interval},
+        product=product.id
+    )
+
+    return price.id
+
+
+
+class CreateCheckoutSessionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, plan_id):
+        plan = get_object_or_404(Plan, id=plan_id)
+        domain = "http://localhost:3000"
+
+        # Ensure only tutors can subscribe
+        if request.user.role != "tutor":
+            return Response({"detail": "Only tutors can subscribe."}, status=403)
+
+        if not plan.stripe_price_id:
+            return Response({"detail": "Plan does not have a Stripe Price ID."}, status=400)
+
+        session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            line_items=[{
+                'price': plan.stripe_price_id,
+                'quantity': 1,
+            }],
+            mode='subscription',
+            success_url=f'{domain}/success',
+            cancel_url=f'{domain}/cancel',
+            customer_email=request.user.email,
+        )
+
+        return Response({'checkout_url': session.url})
+
+
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class StripeWebhookView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        payload = request.body
+        sig_header = request.META.get('HTTP_STRIPE_SIGNATURE')
+        webhook_secret = settings.STRIPE_WEBHOOK_SECRET
+
+        try:
+            event = stripe.Webhook.construct_event(
+                payload, sig_header, webhook_secret
+            )
+        except ValueError:
+            print("❌ Invalid payload")
+            return HttpResponse(status=400)
+        except stripe.error.SignatureVerificationError:
+            print("❌ Invalid signature")
+            return HttpResponse(status=400)
+
+        print("🔔 Webhook received")
+
+        if event['type'] == 'checkout.session.completed':
+            session = event['data']['object']
+            session_id = session.get('id')
+            customer_id = session.get('customer')
+            subscription_id = session.get('subscription')
+            email = session.get('customer_details', {}).get('email')
+
+            try:
+                # Get line_items using session ID
+                line_items = stripe.checkout.Session.list_line_items(session_id)
+                price_id = line_items['data'][0]['price']['id']
+                print(f"✅ Payment success for: {email}, Price ID: {price_id}")
+
+                # Get user and tutor
+                account = Accounts.objects.get(email=email)
+                tutor = TutorDetails.objects.get(account=account)
+
+                # Get plan
+                plan = Plan.objects.get(stripe_price_id=price_id)
+
+                # Calculate expiry
+                if plan.plan_type == 'MONTHLY':
+                    expires_on = now() + timedelta(days=30)
+                elif plan.plan_type == 'YEARLY':
+                    expires_on = now() + timedelta(days=365)
+                else:
+                    expires_on = now()
+
+                # Update or create subscription
+                subscription, created = TutorSubscription.objects.update_or_create(
+                    tutor=tutor,
+                    defaults={
+                        'plan': plan,
+                        'subscribed_on': now(),
+                        'expires_on': expires_on,
+                        'is_active': True,
+                        'stripe_customer_id': customer_id,
+                        'stripe_subscription_id': subscription_id,
+                    }
+                )
+
+                print(f"✅ Subscription {'created' if created else 'updated'} for {tutor.account.email}")
+
+            except Accounts.DoesNotExist:
+                print("❌ Account not found for email:", email)
+                return HttpResponse(status=404)
+            except TutorDetails.DoesNotExist:
+                print("❌ TutorDetails not found for email:", email)
+                return HttpResponse(status=404)
+            except Plan.DoesNotExist:
+                print("❌ Plan not found for Stripe price ID:", price_id)
+                return HttpResponse(status=404)
+            except Exception as e:
+                print("⚠️ Error processing webhook:", str(e))
+                return HttpResponse(status=400)
+
+        return HttpResponse(status=200)
+
+
+
+
 class TutorDetailsView(APIView):
 
     permission_classes = [AllowAny]
@@ -903,12 +1043,12 @@ class EnrolledCoursesView(APIView):
 
     def get(self, request):
         try:
-            enrollments = UserCourseEnrollment.objects.filter(user=request.user).select_related('course')
+            enrollments = UserCourseEnrollment.objects.filter(user=request.user)
+            
+            response_data = []
 
             if not enrollments.exists():
-                return Response(response_data)
-
-            response_data = []
+                return Response([], status=status.HTTP_200_OK)
 
             for enrollment in enrollments:
                 course = enrollment.course
@@ -956,6 +1096,9 @@ class EnrolledCoursesView(APIView):
             return Response(response_data)
 
         except Exception as e:
+            import traceback
+            print("Enrollment error:", str(e))
+            traceback.print_exc()
             return Response({'error': str(e)}, status=400)
         
 
@@ -997,6 +1140,27 @@ class StartedCourseDetailsView(APIView):
 
 
 
+class CourseTutorView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, id):
+        try:
+            course = Course.objects.get(id=id)
+
+            if not course.created_by:
+                return Response({"error": "This course does not have an associated tutor."}, status=status.HTTP_404_NOT_FOUND)
+
+            tutor_account_id = course.created_by.account.id
+
+            return Response(tutor_account_id, status=status.HTTP_200_OK)
+
+        except Course.DoesNotExist:
+            return Response({"error": "Course not found."}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
 class StartedCourseModulesView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -1009,7 +1173,7 @@ class StartedCourseModulesView(APIView):
                 modules = Modules.objects.filter(course=course, is_active=True)          
             except:
                 return Response({"error":"Modules Not Found"}, status=status.HTTP_404_NOT_FOUND)
-
+            
             data = []
 
             for module in modules:
@@ -1743,3 +1907,137 @@ class GenerateCertificateView(APIView):
         
 
 
+class AvailableMeetingsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+
+            enrolled_courses = UserCourseEnrollment.objects.filter(
+                user=request.user,
+                status__in=["progress", "completed"]
+            ).values_list("course_id", flat=True)
+
+            if not enrolled_courses.exists():
+                return Response([], status=status.HTTP_200_OK)
+
+            
+            tutor_ids = Course.objects.filter(
+                id__in=enrolled_courses
+            ).values_list("created_by", flat=True)
+
+            if not tutor_ids.exists():
+                return Response([], status=status.HTTP_200_OK)
+
+            
+            booked_meeting_ids = MeetingBooking.objects.filter(
+                user=request.user
+            ).values_list("meeting_id", flat=True)
+
+            
+            meetings = Meetings.objects.filter(
+                is_completed=False,
+                tutor_id__in=tutor_ids
+            ).exclude(id__in=booked_meeting_ids)
+
+            serializer = SheduledMeetingsSerializer(meetings, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+class BookedMeetingsView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            bookings = MeetingBooking.objects.filter(user=request.user).select_related("meeting")
+
+            meetings = [booking.meeting for booking in bookings]
+
+            serializer = SheduledMeetingsSerializer(meetings, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+
+class BookMeetingView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        meeting_id = request.data.get("meeting_id")
+
+        if not meeting_id:
+            return Response({"error": "Meeting ID is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            meeting = Meetings.objects.get(id=meeting_id)
+
+            if meeting.is_completed:
+                return Response({"error": "This meeting is already completed."}, status=status.HTTP_400_BAD_REQUEST)
+
+            if meeting.left == meeting.limit:
+                return Response({"error": "This meeting is fully booked."}, status=status.HTTP_400_BAD_REQUEST)
+
+            if MeetingBooking.objects.filter(meeting=meeting, user=request.user).exists():
+                return Response({"error": "You have already booked this meeting."}, status=status.HTTP_400_BAD_REQUEST)
+
+            MeetingBooking.objects.create(meeting=meeting, user=request.user)
+
+            meeting.left += 1
+            meeting.save()
+
+            return Response({"message": "Meeting booked successfully."}, status=status.HTTP_201_CREATED)
+
+        except Meetings.DoesNotExist:
+            return Response({"error": "Meeting not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        except Exception as e:
+            print("🔥 Booking exception:", e)
+            return Response({"error": "Something went wrong."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        
+
+class RecentMeetingsView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+
+            enrolled_courses = UserCourseEnrollment.objects.filter(
+                user=request.user,
+                status__in=["progress", "completed"]
+            ).values_list("course_id", flat=True)
+
+            if not enrolled_courses.exists():
+                return Response([], status=status.HTTP_200_OK)
+
+            
+            tutor_ids = Course.objects.filter(
+                id__in=enrolled_courses
+            ).values_list("created_by", flat=True)
+
+            if not tutor_ids.exists():
+                return Response([], status=status.HTTP_200_OK)
+
+            
+            booked_meeting_ids = MeetingBooking.objects.filter(
+                user=request.user
+            ).values_list("meeting_id", flat=True)
+
+            
+            meetings = Meetings.objects.filter(
+                is_completed=True,
+                tutor_id__in=tutor_ids
+            ).exclude(id__in=booked_meeting_ids)
+
+            serializer = SheduledMeetingsSerializer(meetings, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)

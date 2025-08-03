@@ -12,6 +12,18 @@ from .permissions import IsSubscribed
 import cloudinary.uploader
 
 # Create your views here.
+class TutorSubscribedCheckView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            tutor = get_object_or_404(TutorDetails, account=request.user)
+            is_subscribed = TutorSubscription.objects.filter(tutor=tutor).exists()
+            return Response({"subscribed": is_subscribed}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"subscribed": False}, status=status.HTTP_200_OK)
+
+
 
 class TutorProfileView(APIView):
     permission_classes=[IsSubscribed]
@@ -554,3 +566,76 @@ class SetCourseDraftView(APIView):
                 return Response({"error":"Course Doest Not Exists"}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response({"error":str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        
+
+
+class SheduleMeetingView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+
+            serializer = SheduleMeetingSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+
+            try:
+                tutor = TutorDetails.objects.get(account=request.user)
+            except TutorDetails.DoesNotExist:
+                return Response({"error": "Tutor does not exist"}, status=status.HTTP_404_NOT_FOUND)
+            
+            Meetings.objects.create(
+                tutor=tutor,
+                date=serializer.validated_data['date'],
+                time=serializer.validated_data['time'],
+                limit=serializer.validated_data['limit'],
+                left=0,  
+            )   
+            
+            return Response({"message": "Meeting scheduled successfully"}, status=status.HTTP_201_CREATED)
+        
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        
+
+
+class SheduledMeetings(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            try:
+                tutor = TutorDetails.objects.get(account=request.user)
+            except TutorDetails.DoesNotExist:
+                
+                return Response({"error": "Tutor does not exist"}, status=status.HTTP_404_NOT_FOUND)
+            
+            meetings = Meetings.objects.filter(tutor=tutor)
+            
+            serializer = SheduledMeetingsSerializer(meetings, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        
+
+
+class RecentMeetingsView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            try:
+                tutor = TutorDetails.objects.get(account=request.user)
+            except TutorDetails.DoesNotExist:
+                
+                return Response({"error": "Tutor does not exist"}, status=status.HTTP_404_NOT_FOUND)
+            
+            meetings = Meetings.objects.filter(tutor=tutor, is_completed=True)
+            
+            serializer = SheduledMeetingsSerializer(meetings, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)

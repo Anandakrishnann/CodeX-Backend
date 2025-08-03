@@ -8,7 +8,6 @@ class ChatRoom(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
-
 class Message(models.Model):
     room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name='messages')
     sender = models.ForeignKey(Accounts, on_delete=models.CASCADE)
