@@ -21,6 +21,7 @@ constantly==23.10.4
 cron-descriptor==1.4.5
 cryptography==44.0.2
 daphne==4.2.0
+dj-database-url==3.0.1
 Django==5.1.7
 django-celery-beat==2.8.1
 django-cloudinary-storage==0.3.0
@@ -70,4 +71,3 @@ urllib3==2.3.0
 vine==5.1.0
 wcwidth==0.2.13
 zope.interface==7.2
-gunicorn
