@@ -30,9 +30,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DEBUG')
 
-ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -66,22 +66,18 @@ MIDDLEWARE = [
 
 
 
-CORS_ALLOW_CREDENTIALS = True  
-CORS_ALLOW_ALL_ORIGINS = False  # Disable for security
+CORS_ALLOW_CREDENTIALS = os.getenv('CORS_ALLOW_CREDENTIALS')
+CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS')
 
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-]
+CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', '').split(',')
 
 CORS_ALLOW_HEADERS = [
     "content-type",
     "authorization",
 ]
 
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:3000",
-]
+CSRF_TRUSTED_ORIGINS = os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',')
 
 CSRF_COOKIE_HTTPONLY = False  
 CSRF_COOKIE_SECURE = False  # Set to False for local development
@@ -104,15 +100,15 @@ REST_FRAMEWORK = {
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
-    "ROTATE_REFRESH_TOKENS": False,  # Avoid generating new refresh tokens on each refresh
+    "ROTATE_REFRESH_TOKENS": False, 
     "BLACKLIST_AFTER_ROTATION": False, 
-    "AUTH_COOKIE": "access_token",  # Name of the cookie for access token
-    "AUTH_COOKIE_REFRESH": "refresh_token",  # Name of the refresh token cookie
-    "AUTH_COOKIE_HTTP_ONLY": True,  # Prevent JavaScript access
-    "AUTH_COOKIE_SECURE": True,  # Use True in production (HTTPS)
-    "AUTH_COOKIE_SAMESITE": "None",  # Allows cross-site requests
+    "AUTH_COOKIE": "access_token", 
+    "AUTH_COOKIE_REFRESH": "refresh_token", 
+    "AUTH_COOKIE_HTTP_ONLY": True,  
+    "AUTH_COOKIE_SECURE": True, 
+    "AUTH_COOKIE_SAMESITE": "None",  
     "AUTH_TOKEN_CLASSES": ("rest_framework_simplejwt.tokens.AccessToken",),
-    "TOKEN_BLACKLIST_ENABLED": True,  # ✅ Add this
+    "TOKEN_BLACKLIST_ENABLED": True, 
 }
 
 ROOT_URLCONF = 'CodeX.urls'
@@ -142,7 +138,12 @@ CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {
-            'hosts': [('127.0.0.1', 6379)],  # Update with your Redis server details
+            'hosts': [
+                (
+                    os.getenv("REDIS_HOST", "127.0.0.1"),
+                    int(os.getenv("REDIS_PORT", 6379))
+                )
+            ],
         },
     },
 }
@@ -237,8 +238,12 @@ PAYPAL_ORDER_URL = os.getenv("PAYPAL_ORDER_URL")
 DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100MB limit
 
 
+REDIS_URL = os.getenv("REDIS_URL")
+
+
 # Celery
-CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_BROKER_URL = REDIS_URL
+CELERY_RESULT_BACKEND = REDIS_URL
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 
