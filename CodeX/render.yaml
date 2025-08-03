@@ -9,7 +9,11 @@ services:
       - key: DJANGO_SETTINGS_MODULE
         value: CodeX.settings
       - key: REDIS_URL
-        value: redis://default:<password>@redis-12345.c12.us-east-1-4.ec2.cloud.redislabs.com:12345
+        sync: false
+      - key: DJANGO_SECRET_KEY
+        sync: false
+      - key: DEBUG
+        value: "False"
 
   - type: worker
     name: codex-celery-worker
@@ -21,4 +25,4 @@ services:
       - key: DJANGO_SETTINGS_MODULE
         value: CodeX.settings
       - key: REDIS_URL
-        value: redis://default:<password>@redis-12345.c12.us-east-1-4.ec2.cloud.redislabs.com:12345
+        sync: false
