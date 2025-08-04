@@ -650,6 +650,7 @@ class ListCategoriesView(APIView):
 
 
 class CheckUserEnrollmentView(APIView):
+    permission_classes = [AllowAny]
     def get(self, request):
         user_email = request.query_params.get('user_email')
         course_id = request.query_params.get('course_id')
