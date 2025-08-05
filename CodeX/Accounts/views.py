@@ -535,7 +535,9 @@ class UploadUserProfilePictureView(APIView):
 
 
 class TutorHomeView(APIView):
-
+    
+    permission_classes = [IsAuthenticated]
+    
     def get(self, request):
         try:
             subscribed = False
@@ -575,30 +577,33 @@ class TutorHomeView(APIView):
                 except Exception as e:
                     print(f"❌ Unexpected error fetching subscription or plan: {e}")
 
-            response = Response(
-                {
-                    "message": "Login successful",
-                    "user": {
-                        'id': user.id,
-                        'first_name': user.first_name,
-                        'last_name': user.last_name,
-                        'email': user.email,
-                        'phone': user.phone,
-                        'role': user.role,
-                        'subscribed':subscribed,
-                        'streak':user.streak,
-                        'is_superuser': user.is_superuser,
-                        'plan_details':plan_details,
-                        'categories':categories
+                response = Response(
+                    {
+                        "message": "Login successful",
+                        "user": {
+                            'id': user.id,
+                            'first_name': user.first_name,
+                            'last_name': user.last_name,
+                            'email': user.email,
+                            'phone': user.phone,
+                            'role': user.role,
+                            'subscribed':subscribed,
+                            'streak':user.streak,
+                            'is_superuser': user.is_superuser,
+                            'plan_details':plan_details,
+                            'categories':categories
+                        },
                     },
-                },
-                status=status.HTTP_200_OK,
-            )
+                    status=status.HTTP_200_OK,
+                )
 
-            return response
+                return response
+            
+            else:
+                return Response({"error":"User Logged in"}, status=status.HTTP_200_OK)
 
         except:
-            return Response({"details":"Error Fetching Tutor Data"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error":"Error Fetching Tutor Data"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 

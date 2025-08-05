@@ -16,7 +16,6 @@ import os
 import cloudinary
 import cloudinary.uploader
 import cloudinary.api
-import dj_database_url
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -138,18 +137,15 @@ WSGI_APPLICATION = 'CodeX.wsgi.application'
 ASGI_APPLICATION = 'CodeX.asgi.application'
 
 CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'CONFIG': {
-            'hosts': [
-                (
-                    os.getenv("REDIS_HOST", "127.0.0.1"),
-                    int(os.getenv("REDIS_PORT", 6379))
-                )
-            ],
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [f"redis://:{os.getenv('REDIS_PASSWORD')}@{os.getenv('REDIS_HOST')}:{os.getenv('REDIS_PORT')}"],
         },
     },
 }
+
+
 
 
 # Database
@@ -157,11 +153,14 @@ CHANNEL_LAYERS = {
 
 
 DATABASES = {
-    'default': dj_database_url.config(
-        default=os.getenv('DATABASE_URL'),
-        conn_max_age=600,  # recommended for production
-        ssl_require=True
-    )
+    'default': {
+        'ENGINE': os.getenv('DATABASE_ENGINE'),
+        'NAME': os.getenv('DATABASE_NAME'),
+        'USER': os.getenv('DATABASE_USER'),
+        'PASSWORD': os.getenv('DATABASE_PASSWORD'),
+        'HOST': os.getenv('DATABASE_HOST'),
+        'PORT': os.getenv('DATABASE_PORT'),
+    }
 }
 
 EMAIL_BACKEND = os.getenv('EMAIL_BACKEND')
