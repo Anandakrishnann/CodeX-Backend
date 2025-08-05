@@ -16,6 +16,8 @@ import os
 import cloudinary
 import cloudinary.uploader
 import cloudinary.api
+import dj_database_url
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -152,16 +154,12 @@ CHANNEL_LAYERS = {
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
 
-DATABASES = {
-    'default': {
-        'ENGINE': os.getenv('DATABASE_ENGINE'),
-        'NAME': os.getenv('DATABASE_NAME'),
-        'USER': os.getenv('DATABASE_USER'),
-        'PASSWORD': os.getenv('DATABASE_PASSWORD'),
-        'HOST': os.getenv('DATABASE_HOST'),
-        'PORT': os.getenv('DATABASE_PORT'),
-    }
-}
+DATABASES = dj_database_url.config(
+    default=os.getenv('DATABASE_URL'),
+    conn_max_age=600,
+    ssl_require=True  # set this only for production
+)
+
 
 EMAIL_BACKEND = os.getenv('EMAIL_BACKEND')
 EMAIL_HOST = os.getenv('EMAIL_HOST')
