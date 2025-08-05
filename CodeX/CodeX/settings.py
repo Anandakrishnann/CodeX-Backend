@@ -154,12 +154,13 @@ CHANNEL_LAYERS = {
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
 
-DATABASES = dj_database_url.config(
-    default=os.getenv('DATABASE_URL'),
-    conn_max_age=600,
-    ssl_require=True  # set this only for production
-)
-
+DATABASES = {
+    'default': dj_database_url.config(
+        default=os.getenv('DATABASE_URL'),
+        conn_max_age=600,
+        ssl_require=True
+    )
+}
 
 EMAIL_BACKEND = os.getenv('EMAIL_BACKEND')
 EMAIL_HOST = os.getenv('EMAIL_HOST')
