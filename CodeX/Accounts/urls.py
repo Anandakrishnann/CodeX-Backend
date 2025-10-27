@@ -1,5 +1,6 @@
 from django.urls import path
 from .views import *
+from .stripe_webhook import StripeWebhookView
 
 urlpatterns = [
     path('signup/', UserRegisterView.as_view(), name='signup'),
@@ -11,6 +12,7 @@ urlpatterns = [
     path('reset_password/<str:uidb64>/<str:token>/', ResetPasswordView.as_view(), name='reset-password'),
     path('user_profile/', UserProfileView.as_view(), name='user_profile'),
     path('profile_picture/', UploadUserProfilePictureView.as_view(), name='profile_picture'),
+    path('webhook/stripe/', StripeWebhookView.as_view(), name='stripe-webhook'),
     path('tutor_home/', TutorHomeView.as_view(), name='tutor_home'),
     path('courses/', ListCourseView.as_view(), name='courses'),
     path("categories/", ListCategoriesView.as_view(), name="categories"),

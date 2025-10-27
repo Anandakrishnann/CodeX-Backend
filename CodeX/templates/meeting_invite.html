@@ -3,15 +3,128 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <title>Meeting Invitation - CodexLearning</title>
 </head>
-<body>
-    
-<p>Hello {{ name }},</p>
-<p>You have a meeting scheduled on {{ meeting_date }} at {{ meeting_time }}.</p>
-<p>Click the link below to join the meeting:</p>
-<a href="{{ meeting_link }}">Join Meeting</a>
-<p>Thanks,<br>CodexLearning Team</p>
-
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8fafc; line-height: 1.6;">
+    <table role="presentation" style="width: 100%; border-collapse: collapse;">
+        <tr>
+            <td style="padding: 40px 20px;">
+                <table role="presentation" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); overflow: hidden;">
+                    <!-- Header -->
+                    <tr>
+                        <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 30px; text-align: center;">
+                            <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600; letter-spacing: -0.5px;">
+                                CodexLearning
+                            </h1>
+                            <p style="margin: 8px 0 0 0; color: #e2e8f0; font-size: 16px; opacity: 0.9;">
+                                Your Learning Session Awaits
+                            </p>
+                        </td>
+                    </tr>
+                    
+                    <!-- Content -->
+                    <tr>
+                        <td style="padding: 40px 30px;">
+                            <div style="text-align: center; margin-bottom: 30px;">
+                                <div style="width: 80px; height: 80px; background-color: #3b82f6; border-radius: 50%; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center;">
+                                    <span style="color: #ffffff; font-size: 32px;">📅</span>
+                                </div>
+                                <h2 style="margin: 0 0 10px 0; color: #1f2937; font-size: 24px; font-weight: 600;">
+                                    Meeting Scheduled
+                                </h2>
+                                <p style="margin: 0; color: #6b7280; font-size: 16px;">
+                                    You're invited to join our learning session
+                                </p>
+                            </div>
+                            
+                            <p style="margin: 0 0 20px 0; color: #374151; font-size: 16px;">
+                                Hello <strong style="color: #1f2937;">{{ name }}</strong>,
+                            </p>
+                            
+                            <p style="margin: 0 0 30px 0; color: #374151; font-size: 16px;">
+                                Great news! Your learning session has been scheduled and we're looking forward to meeting with you. This is an excellent opportunity to advance your skills and get personalized guidance from our expert instructors.
+                            </p>
+                            
+                            <!-- Meeting Details Card -->
+                            <div style="background-color: #f8fafc; border: 2px solid #e5e7eb; border-radius: 12px; padding: 25px; margin: 30px 0;">
+                                <h3 style="margin: 0 0 20px 0; color: #1f2937; font-size: 18px; font-weight: 600; text-align: center;">
+                                    📋 Meeting Details
+                                </h3>
+                                
+                                <table role="presentation" style="width: 100%; border-collapse: collapse;">
+                                    <tr>
+                                        <td style="padding: 8px 0; color: #6b7280; font-size: 14px; font-weight: 500; width: 30%;">
+                                            📅 Date:
+                                        </td>
+                                        <td style="padding: 8px 0; color: #1f2937; font-size: 16px; font-weight: 600;">
+                                            {{ meeting_date }}
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding: 8px 0; color: #6b7280; font-size: 14px; font-weight: 500;">
+                                            🕐 Time:
+                                        </td>
+                                        <td style="padding: 8px 0; color: #1f2937; font-size: 16px; font-weight: 600;">
+                                            {{ meeting_time }}
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding: 8px 0; color: #6b7280; font-size: 14px; font-weight: 500;">
+                                            💻 Platform:
+                                        </td>
+                                        <td style="padding: 8px 0; color: #1f2937; font-size: 16px; font-weight: 600;">
+                                            Video Conference
+                                        </td>
+                                    </tr>
+                                </table>
+                            </div>
+                            
+                            <p style="margin: 0 0 30px 0; color: #374151; font-size: 16px;">
+                                To join the meeting, simply click the button below at the scheduled time. We recommend joining a few minutes early to ensure everything is working properly.
+                            </p>
+                            
+                            <div style="text-align: center; margin: 30px 0;">
+                                <a href="{{ meeting_link }}" style="display: inline-block; background-color: #10b981; color: #ffffff; text-decoration: none; padding: 16px 32px; border-radius: 8px; font-weight: 600; font-size: 18px; transition: background-color 0.3s ease;">
+                                    🚀 Join Meeting
+                                </a>
+                            </div>
+                            
+                            <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 20px; margin: 30px 0; border-radius: 0 8px 8px 0;">
+                                <h4 style="margin: 0 0 10px 0; color: #92400e; font-size: 16px; font-weight: 600;">
+                                    💡 Preparation Tips:
+                                </h4>
+                                <ul style="margin: 0; padding-left: 20px; color: #92400e; font-size: 14px;">
+                                    <li style="margin-bottom: 5px;">Test your camera and microphone beforehand</li>
+                                    <li style="margin-bottom: 5px;">Prepare any questions you'd like to discuss</li>
+                                    <li style="margin-bottom: 5px;">Have a notebook ready for taking notes</li>
+                                    <li>Ensure you have a stable internet connection</li>
+                                </ul>
+                            </div>
+                            
+                            <p style="margin: 30px 0 0 0; color: #374151; font-size: 16px;">
+                                If you need to reschedule or have any questions, please contact us at 
+                                <a href="mailto:support@codexlearning.com" style="color: #667eea; text-decoration: none;">support@codexlearning.com</a> 
+                                or call us at <strong style="color: #1f2937;">(555) 123-4567</strong>.
+                            </p>
+                        </td>
+                    </tr>
+                    
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background-color: #f8fafc; padding: 30px; text-align: center; border-top: 1px solid #e5e7eb;">
+                            <p style="margin: 0 0 10px 0; color: #374151; font-size: 16px; font-weight: 500;">
+                                Looking forward to our session!<br>
+                                <strong style="color: #1f2937;">The CodexLearning Team</strong>
+                            </p>
+                            <p style="margin: 0; color: #6b7280; font-size: 14px;">
+                                © 2025 CodexLearning. All rights reserved.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
 </body>
-</html>     
+</body>
+</html>

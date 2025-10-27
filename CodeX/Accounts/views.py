@@ -44,8 +44,8 @@ import traceback
 from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
-
-logger = logging.getLogger(__name__)
+from django.utils.timezone import make_aware
+from .tasks import *
 
 User = get_user_model()
 
@@ -171,6 +171,9 @@ class LoginView(APIView):
                         print("⚠️ No plan associated with the subscription.")
                 except ObjectDoesNotExist:
                     print("❌ Subscription not found for tutor.")
+                    subscribed = False
+                    plan_details = None
+
                 except Exception as e:
                     print(f"❌ Unexpected error fetching subscription or plan: {e}")
             
@@ -746,22 +749,6 @@ class CourseDetailsView(APIView):
 
 
 
-def create_stripe_product_and_price(plan):
-    product = stripe.Product.create(name=plan.name)
-
-    interval = "month" if plan.plan_type == "MONTHLY" else "year"
-
-    price = stripe.Price.create(
-        unit_amount=int(plan.price * 100),  # in cents
-        currency="inr",
-        recurring={"interval": interval},
-        product=product.id
-    )
-
-    return price.id
-
-
-
 class CreateCheckoutSessionView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -769,7 +756,6 @@ class CreateCheckoutSessionView(APIView):
         plan = get_object_or_404(Plan, id=plan_id)
         domain = "http://localhost:3000"
 
-        # Ensure only tutors can subscribe
         if request.user.role != "tutor":
             return Response({"detail": "Only tutors can subscribe."}, status=403)
 
@@ -783,95 +769,17 @@ class CreateCheckoutSessionView(APIView):
                 'quantity': 1,
             }],
             mode='subscription',
-            success_url=f'{domain}/success',
+            success_url=f'{domain}/success?session_id={{CHECKOUT_SESSION_ID}}',
             cancel_url=f'{domain}/cancel',
             customer_email=request.user.email,
+            client_reference_id=str(request.user.id),
+            metadata={                           
+                "plan_id": str(plan.id)
+            }
         )
 
         return Response({'checkout_url': session.url})
 
-
-
-
-@method_decorator(csrf_exempt, name='dispatch')
-class StripeWebhookView(APIView):
-    permission_classes = [AllowAny]
-
-    def post(self, request, *args, **kwargs):
-        payload = request.body
-        sig_header = request.META.get('HTTP_STRIPE_SIGNATURE')
-        webhook_secret = settings.STRIPE_WEBHOOK_SECRET
-
-        try:
-            event = stripe.Webhook.construct_event(
-                payload, sig_header, webhook_secret
-            )
-        except ValueError:
-            print("❌ Invalid payload")
-            return HttpResponse(status=400)
-        except stripe.error.SignatureVerificationError:
-            print("❌ Invalid signature")
-            return HttpResponse(status=400)
-
-        print("🔔 Webhook received")
-
-        if event['type'] == 'checkout.session.completed':
-            session = event['data']['object']
-            session_id = session.get('id')
-            customer_id = session.get('customer')
-            subscription_id = session.get('subscription')
-            email = session.get('customer_details', {}).get('email')
-
-            try:
-                # Get line_items using session ID
-                line_items = stripe.checkout.Session.list_line_items(session_id)
-                price_id = line_items['data'][0]['price']['id']
-                print(f"✅ Payment success for: {email}, Price ID: {price_id}")
-
-                # Get user and tutor
-                account = Accounts.objects.get(email=email)
-                tutor = TutorDetails.objects.get(account=account)
-
-                # Get plan
-                plan = Plan.objects.get(stripe_price_id=price_id)
-
-                # Calculate expiry
-                if plan.plan_type == 'MONTHLY':
-                    expires_on = now() + timedelta(days=30)
-                elif plan.plan_type == 'YEARLY':
-                    expires_on = now() + timedelta(days=365)
-                else:
-                    expires_on = now()
-
-                # Update or create subscription
-                subscription, created = TutorSubscription.objects.update_or_create(
-                    tutor=tutor,
-                    defaults={
-                        'plan': plan,
-                        'subscribed_on': now(),
-                        'expires_on': expires_on,
-                        'is_active': True,
-                        'stripe_customer_id': customer_id,
-                        'stripe_subscription_id': subscription_id,
-                    }
-                )
-
-                print(f"✅ Subscription {'created' if created else 'updated'} for {tutor.account.email}")
-
-            except Accounts.DoesNotExist:
-                print("❌ Account not found for email:", email)
-                return HttpResponse(status=404)
-            except TutorDetails.DoesNotExist:
-                print("❌ TutorDetails not found for email:", email)
-                return HttpResponse(status=404)
-            except Plan.DoesNotExist:
-                print("❌ Plan not found for Stripe price ID:", price_id)
-                return HttpResponse(status=404)
-            except Exception as e:
-                print("⚠️ Error processing webhook:", str(e))
-                return HttpResponse(status=400)
-
-        return HttpResponse(status=200)
 
 
 
@@ -1925,6 +1833,7 @@ class AvailableMeetingsView(APIView):
             ).values_list("course_id", flat=True)
 
             if not enrolled_courses.exists():
+                print("no course enrolled by the user")
                 return Response([], status=status.HTTP_200_OK)
 
             
@@ -1939,13 +1848,12 @@ class AvailableMeetingsView(APIView):
             booked_meeting_ids = MeetingBooking.objects.filter(
                 user=request.user
             ).values_list("meeting_id", flat=True)
-
             
             meetings = Meetings.objects.filter(
                 is_completed=False,
                 tutor_id__in=tutor_ids
             ).exclude(id__in=booked_meeting_ids)
-
+            
             serializer = SheduledMeetingsSerializer(meetings, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -1959,7 +1867,7 @@ class BookedMeetingsView(APIView):
     
     def get(self, request):
         try:
-            bookings = MeetingBooking.objects.filter(user=request.user).select_related("meeting")
+            bookings = MeetingBooking.objects.filter(user=request.user, meeting_completed=False).select_related("meeting")
 
             meetings = [booking.meeting for booking in bookings]
 
@@ -1971,13 +1879,11 @@ class BookedMeetingsView(APIView):
 
 
 
-
 class BookMeetingView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
         meeting_id = request.data.get("meeting_id")
-
         if not meeting_id:
             return Response({"error": "Meeting ID is required."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1987,34 +1893,52 @@ class BookMeetingView(APIView):
             if meeting.is_completed:
                 return Response({"error": "This meeting is already completed."}, status=status.HTTP_400_BAD_REQUEST)
 
-            if meeting.left == meeting.limit:
+            if meeting.left <= 0:
                 return Response({"error": "This meeting is fully booked."}, status=status.HTTP_400_BAD_REQUEST)
 
-            if MeetingBooking.objects.filter(meeting=meeting, user=request.user).exists():
+            if MeetingBooking.objects.filter(meeting=meeting, user=request.user, meeting_completed=False).exists():
                 return Response({"error": "You have already booked this meeting."}, status=status.HTTP_400_BAD_REQUEST)
 
-            MeetingBooking.objects.create(meeting=meeting, user=request.user)
-
-            meeting.left += 1
+            # Create booking
+            booking = MeetingBooking.objects.create(meeting=meeting, user=request.user)
+            meeting.left -= 1
             meeting.save()
+            
+            send_meeting_confimation_email.delay(meeting.id, "scheduled", request.user.id)
 
-            return Response({"message": "Meeting booked successfully."}, status=status.HTTP_201_CREATED)
+            # Calculate reminder time
+            meeting_datetime = make_aware(datetime.combine(meeting.date, meeting.time))
+            reminder_time = meeting_datetime - timedelta(minutes=10)
+            completion_time = meeting_datetime + timedelta(minutes=10)
+
+            # Only schedule if reminder is still in the future
+            if reminder_time > now():
+                send_meeting_invite_email.apply_async(
+                    args=[meeting.id, "reminder", request.user.id],
+                    eta=reminder_time
+                )
+            
+            if completion_time > now():
+                mark_meeting_completed.apply_async(
+                    args=[booking.id],
+                    eta=completion_time
+                )
+
+            return Response({"message": "Meeting booked successfully & reminder scheduled."}, status=status.HTTP_201_CREATED)
 
         except Meetings.DoesNotExist:
             return Response({"error": "Meeting not found."}, status=status.HTTP_404_NOT_FOUND)
-
         except Exception as e:
             print("🔥 Booking exception:", e)
             return Response({"error": "Something went wrong."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
-        
+
 
 class RecentMeetingsView(APIView):
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
         try:
-
             enrolled_courses = UserCourseEnrollment.objects.filter(
                 user=request.user,
                 status__in=["progress", "completed"]
@@ -2023,7 +1947,6 @@ class RecentMeetingsView(APIView):
             if not enrolled_courses.exists():
                 return Response([], status=status.HTTP_200_OK)
 
-            
             tutor_ids = Course.objects.filter(
                 id__in=enrolled_courses
             ).values_list("created_by", flat=True)
@@ -2031,16 +1954,19 @@ class RecentMeetingsView(APIView):
             if not tutor_ids.exists():
                 return Response([], status=status.HTTP_200_OK)
 
-            
             booked_meeting_ids = MeetingBooking.objects.filter(
-                user=request.user
+                user=request.user,
+                meeting_completed = True
             ).values_list("meeting_id", flat=True)
 
-            
+            if not booked_meeting_ids.exists():
+                return Response([], status=status.HTTP_200_OK)
+
             meetings = Meetings.objects.filter(
                 is_completed=True,
-                tutor_id__in=tutor_ids
-            ).exclude(id__in=booked_meeting_ids)
+                tutor_id__in=tutor_ids,
+                id__in=booked_meeting_ids
+            )
 
             serializer = SheduledMeetingsSerializer(meetings, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)

@@ -189,8 +189,8 @@ class SheduleMeetingSerializer(serializers.Serializer):
     
     def validate(self, data):
         scheduled_datetime = datetime.combine(data["date"], data["time"])
-        if scheduled_datetime < datetime.now() + timedelta(minutes=30):
-            raise ValidationError("Meeting must be scheduled at least 30 minutes in the future.")
+        # if scheduled_datetime < datetime.now() + timedelta(minutes=30):
+        #     raise ValidationError("Meeting must be scheduled at least 30 minutes in the future.")
         return data
     
 

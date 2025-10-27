@@ -17,7 +17,7 @@ from django.utils.timezone import now, timedelta
 from rest_framework.permissions import AllowAny
 from tutorpanel.models import *
 import cloudinary.uploader
-
+import stripe # type: ignore
 
 
 
@@ -366,6 +366,19 @@ class CategoryStatusView(APIView):
             return Response({"Error": "Error While Chaning the status"}, status=status.HTTP_400_BAD_REQUEST)
 
 
+def create_stripe_product_and_price(plan):
+    product = stripe.Product.create(name=plan.name)
+
+    interval = "month" if plan.plan_type == "MONTHLY" else "year"
+
+    price = stripe.Price.create(
+        unit_amount=int(plan.price * 100),  # in cents
+        currency="inr",
+        recurring={"interval": interval},
+        product=product.id
+    )
+
+    return price.id
 
 
 class CreatePlanView(APIView):

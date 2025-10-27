@@ -120,7 +120,7 @@ ROOT_URLCONF = 'CodeX.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / "templates"],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -138,15 +138,16 @@ WSGI_APPLICATION = 'CodeX.wsgi.application'
 
 ASGI_APPLICATION = 'CodeX.asgi.application'
 
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {
-            "hosts": [f"redis://:{os.getenv('REDIS_PASSWORD')}@{os.getenv('REDIS_HOST')}:{os.getenv('REDIS_PORT')}"],
-        },
-    },
-}
 
+import logging
+
+# Simple console logger for debugging
+logging.basicConfig(
+    level=logging.INFO,  # or DEBUG for more detail
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -154,13 +155,25 @@ CHANNEL_LAYERS = {
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
 
+# DATABASES = {
+#     'default': dj_database_url.config(
+#         default=os.getenv('DATABASE_URL'),
+#         conn_max_age=600,
+#         ssl_require=True
+#     )
+# }
+
 DATABASES = {
-    'default': dj_database_url.config(
-        default=os.getenv('DATABASE_URL'),
-        conn_max_age=600,
-        ssl_require=True
-    )
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'codexlearning',
+        'USER': 'postgres',
+        'PASSWORD': 'admin',
+        'HOST': 'localhost', 
+        'PORT': '5432',     
+    }
 }
+
 
 EMAIL_BACKEND = os.getenv('EMAIL_BACKEND')
 EMAIL_HOST = os.getenv('EMAIL_HOST')
@@ -236,14 +249,31 @@ PAYPAL_ORDER_URL = os.getenv("PAYPAL_ORDER_URL")
 DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100MB limit
 
 
-REDIS_URL = os.getenv("REDIS_URL")
+# Django Timezone
+TIME_ZONE = 'Asia/Kolkata'  # Set to IST
+USE_TZ = True
 
+# Celery Configuration
+CELERY_BROKER_URL = 'redis://127.0.0.1:6379/0'
+CELERY_RESULT_BACKEND = 'redis://127.0.0.1:6379/0'
+CELERY_TASK_SERIALIZER = 'pickle'  # Use Pickle for reliable eta handling
+CELERY_RESULT_SERIALIZER = 'pickle'
+CELERY_ACCEPT_CONTENT = ['application/x-python-serialize']
+CELERY_TIMEZONE = 'Asia/Kolkata'  # Match TIME_ZONE for IST
+CELERY_ENABLE_UTC = False  # Disable UTC to use TIME_ZONE
+CELERY_TASK_TRACK_STARTED = True  # For debugging
+CELERY_TASK_SOFT_TIME_LIMIT = 300  # 5-minute task limit
 
-# Celery
-CELERY_BROKER_URL = REDIS_URL
-CELERY_RESULT_BACKEND = REDIS_URL
-CELERY_ACCEPT_CONTENT = ['json']
-CELERY_TASK_SERIALIZER = 'json'
+# Channels (keep as is)
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": ["redis://127.0.0.1:6379/0"],
+        },
+    },
+}
+
 
 ZEGOCLOUD_APP_ID = os.getenv("ZEGOCLOUD_APP_ID")
 ZEGOCLOUD_SECRET = os.getenv("ZEGOCLOUD_SECRET")

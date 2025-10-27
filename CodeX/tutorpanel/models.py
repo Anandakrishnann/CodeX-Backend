@@ -70,7 +70,7 @@ class Meetings(models.Model):
     limit = models.PositiveIntegerField(help_text="Max number of participants or bookings for this time slot")
     left = models.PositiveBigIntegerField()
     created_at = models.DateTimeField(auto_now_add=True)
-    is_completed = models.BooleanField(default=False)
+    is_completed = models.BooleanField(default=False, null=True, blank=True)
     
 
     def __str__(self):
@@ -85,6 +85,7 @@ class MeetingBooking(models.Model):
     meeting = models.ForeignKey(Meetings, related_name='bookings', on_delete=models.CASCADE)
     user = models.ForeignKey("Accounts.Accounts", on_delete=models.CASCADE)
     booked_at = models.DateTimeField(auto_now_add=True)
+    meeting_completed = models.BooleanField(default=False)
 
     class Meta:
         unique_together = ['meeting', 'user'] 

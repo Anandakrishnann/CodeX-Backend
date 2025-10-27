@@ -23,7 +23,10 @@ urlpatterns = [
     path('lesson_status/<str:lessonId>/', LessonStatusView.as_view(), name='lesson_status'),
     path('set_draft/<str:id>/', SetCourseDraftView.as_view(), name='set_draft'),
     path('shedule-meeting/', SheduleMeetingView.as_view(), name='shedule-meeting'),
+    path('edit-meeting/', EditMeetingView.as_view(), name='edit-meeting'),
+    path('delete-meeting/', DeleteMeetingView.as_view(), name='delete-meeting'),
     path('sheduled-meetings/', SheduledMeetings.as_view(), name='sheduled-meetings/'),
     path('recent-meetings/', RecentMeetingsView.as_view(), name='recent-meetings/'),
     path('get_levels/', get_course_levels, name='get_levels'),
+    path('course-monthly-trends/<str:id>/', CourseMonthlyTrendsView.as_view(), name="course-monthly-trends")
 ]

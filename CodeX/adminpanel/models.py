@@ -33,7 +33,6 @@ class TutorApplications(models.Model):
         return None  # Return None if DOB is not provided
 
 
-
 class Plan(models.Model):
     PLAN_TYPE_CHOICES = [('MONTHLY', 'Monthly'), ('YEARLY', 'Yearly')]
     PLAN_CATEGORY_CHOICES = [('BASIC', 'Basic'), ('PRO', 'Pro'), ('PREMIUM', 'Premium')]

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Meeting Confirmation</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f6f6f6;
+      margin: 0;
+      padding: 0;
+    }
+    .email-container {
+      max-width: 600px;
+      margin: auto;
+      background: #ffffff;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0px 3px 10px rgba(0, 0, 0, 0.1);
+    }
+    .header {
+      background-color: #2563eb;
+      color: #ffffff;
+      text-align: center;
+      padding: 20px;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 24px;
+    }
+    .content {
+      padding: 20px;
+      color: #333333;
+      line-height: 1.6;
+    }
+    .content h2 {
+      color: #2563eb;
+      font-size: 20px;
+      margin-bottom: 10px;
+    }
+    .details-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+    }
+    .details-table td {
+      padding: 10px;
+      border: 1px solid #dddddd;
+    }
+    .footer {
+      background-color: #f1f5f9;
+      text-align: center;
+      padding: 15px;
+      font-size: 14px;
+      color: #6b7280;
+    }
+    @media only screen and (max-width: 600px) {
+      .content, .header, .footer {
+        padding: 15px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="email-container">
+    <div class="header">
+      <h1>Meeting Scheduled</h1>
+    </div>
+    <div class="content">
+      <h2>Hello {{ name }},</h2>
+      <p>Your meeting has been successfully scheduled. Please find the details below:</p>
+      <table class="details-table">
+        <tr>
+          <td><strong>Date</strong></td>
+          <td>{{ meeting_date }}</td>
+        </tr>
+        <tr>
+          <td><strong>Time</strong></td>
+          <td>{{ meeting_time }}</td>
+        </tr>
+      </table>
+      <p>We look forward to seeing you in the meeting.</p>
+    </div>
+    <div class="footer">
+      &copy; {{ current_year }} CodexLearning. All rights reserved.
+    </div>
+  </div>
+</body>
+</html>
