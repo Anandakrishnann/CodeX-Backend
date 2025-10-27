@@ -18,6 +18,159 @@ from rest_framework.permissions import AllowAny
 from tutorpanel.models import *
 import cloudinary.uploader
 import stripe # type: ignore
+from django.db.models import Sum, Count, F, Avg
+from django.db.models.functions import TruncMonth, TruncYear, ExtractYear
+import traceback
+from Accounts.models import *
+from tutorpanel.models import *
+
+
+
+
+class AdminDashboardView(APIView):
+    def get(self, request):
+        print("\n🔹 [AdminDashboardView] Called")
+
+        try:
+            # --- Total counts ---
+            total_users = Accounts.objects.filter(role="user").count()
+            print(f"✅ Total Users: {total_users}")
+
+            total_tutors = Accounts.objects.filter(role="tutor").count()
+            print(f"✅ Total Tutors: {total_tutors}")
+
+            total_courses = Course.objects.count()
+            print(f"✅ Total Courses: {total_courses}")
+
+            total_revenue = (
+                UserCourseEnrollment.objects.aggregate(total=Sum("course__price"))["total"] or 0
+            )
+            print(f"✅ Total Revenue: {total_revenue:.2f}")
+
+            # --- Monthly revenue trend ---
+            print("🔹 Calculating monthly revenue trend...")
+            monthly_revenue_trend = (
+                UserCourseEnrollment.objects
+                .annotate(month=TruncMonth("enrolled_on"))
+                .values("month")
+                .annotate(revenue=Sum("course__price"))
+                .order_by("month")
+            )
+            print(f"✅ Monthly Revenue Raw Data: {list(monthly_revenue_trend)}")
+
+            monthly_revenue_trend = [
+                {"month": m["month"].strftime("%b"), "revenue": float(m["revenue"] or 0)}
+                for m in monthly_revenue_trend if m["month"]
+            ]
+            print(f"✅ Monthly Revenue Parsed: {monthly_revenue_trend}")
+
+            # --- Yearly revenue trend ---
+            print("🔹 Calculating yearly revenue trend...")
+            yearly_revenue_trend = (
+                UserCourseEnrollment.objects
+                .annotate(year=ExtractYear("enrolled_on"))
+                .values("year")
+                .annotate(revenue=Sum("course__price"))
+                .order_by("year")
+            )
+            print(f"✅ Yearly Revenue Trend: {list(yearly_revenue_trend)}")
+
+            # --- User growth trend ---
+            print("🔹 Calculating user growth trend...")
+            user_growth = (
+                Accounts.objects.filter(role="user")
+                .annotate(month=TruncMonth("created_at"))  # ✅ Correct field
+                .values("month")
+                .annotate(count=Count("id"))
+                .order_by("month")
+            )
+            print(f"✅ User Growth Raw Data: {list(user_growth)}")
+
+            user_growth = [
+                {"month": u["month"].strftime("%b"), "count": u["count"]}
+                for u in user_growth if u["month"]
+            ]
+            print(f"✅ User Growth Parsed: {user_growth}")
+
+            # --- Top tutors ---
+            print("🔹 Fetching top tutors...")
+            top_tutors = (
+                UserCourseEnrollment.objects
+                .values("course__created_by__account__first_name", "course__created_by__account__last_name")
+                .annotate(earnings=Sum("course__price"))
+                .order_by("-earnings")[:5]
+            )
+            print(f"✅ Top Tutors Raw: {list(top_tutors)}")
+
+            top_tutors = [
+                {
+                    "name": f"{t['course__created_by__account__first_name']} {t['course__created_by__account__last_name']}".strip(),
+                    "earnings": float(t["earnings"] or 0),
+                }
+                for t in top_tutors
+            ]
+            print(f"✅ Top Tutors Parsed: {top_tutors}")
+
+
+            # --- Top courses ---
+            print("🔹 Fetching top courses...")
+            top_courses = (
+                UserCourseEnrollment.objects
+                .values("course__title")
+                .annotate(enrollments=Count("id"))
+                .order_by("-enrollments")[:5]
+            )
+            print(f"✅ Top Courses Raw: {list(top_courses)}")
+
+            top_courses = [
+                {"name": c["course__title"] or "Untitled", "enrollments": c["enrollments"]}
+                for c in top_courses
+            ]
+            print(f"✅ Top Courses Parsed: {top_courses}")
+
+            # --- Recent transactions ---
+            print("🔹 Fetching recent transactions...")
+            recent_transactions = (
+                UserCourseEnrollment.objects
+                .select_related("user", "course")
+                .order_by("-enrolled_on")[:5]
+            )
+            print(f"✅ Recent Transactions Raw Count: {recent_transactions.count()}")
+
+            transactions_data = [
+                {
+                    "user": f"{tx.user.first_name} {tx.user.last_name}".strip(),
+                    "course": tx.course.title,
+                    "amount": float(tx.course.price or 0),
+                    "date": tx.enrolled_on.strftime("%b %d, %Y"),
+                }
+                for tx in recent_transactions
+            ]
+            print(f"✅ Transactions Parsed: {transactions_data}")
+
+            # --- Final response ---
+            data = {
+                "total_users": total_users,
+                "total_tutors": total_tutors,
+                "total_courses": total_courses,
+                "total_revenue": float(total_revenue),
+                "monthly_revenue_trend": monthly_revenue_trend,
+                "yearly_revenue_trend": list(yearly_revenue_trend),
+                "user_growth": user_growth,
+                "top_tutors": top_tutors,
+                "top_courses": top_courses,
+                "recent_transactions": transactions_data,
+            }
+
+            print("✅ Final dashboard data ready to return.\n")
+            return Response(data, status=200)
+
+        except Exception as e:
+            import traceback
+            print("❌ [AdminDashboardView] ERROR:", str(e))
+            print(traceback.format_exc())
+            return Response({"error": str(e)}, status=500)
+
 
 
 
@@ -63,7 +216,7 @@ class Status(APIView):
             if not user_id:
                 return Response({"error": "User ID is required"}, status=status.HTTP_400_BAD_REQUEST)
             
-            user = get_object_or_404(User, id=user_id)
+            user = get_object_or_404(Accounts, id=user_id)
 
             user.isblocked = not user.isblocked
             user.save()
@@ -79,11 +232,13 @@ class TutorStatus(APIView):
     def post(self, request):
         try:
             user_id = request.data.get('id')
+            print(user_id)
 
             if not user_id:
+                print("no userss")
                 return Response({"error": "User ID is required"}, status=status.HTTP_400_BAD_REQUEST)
             
-            user = get_object_or_404(User, id=user_id)
+            user = get_object_or_404(Accounts, id=user_id)
 
             user.isblocked = not user.isblocked
             user.save()
@@ -178,6 +333,8 @@ class TutorOverView(APIView):
             deatils = get_object_or_404(TutorDetails, account=tutor)
 
             data = {
+                "id":tutor.id,
+                "is_blocked": tutor.isblocked,
                 "username": deatils.full_name,
                 "email": tutor.email,
                 "date_of_birth": deatils.dob,

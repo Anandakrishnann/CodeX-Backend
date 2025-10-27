@@ -17,13 +17,94 @@ from django.utils import timezone
 from django.db import transaction
 from datetime import datetime, timedelta
 from django.conf import settings
-from django.db.models import Sum, Count, F
+from django.db.models import Sum, Count, F, Avg
+from django.db.models.functions import TruncMonth, TruncYear
+import traceback
 
 
+class TutorDashboardView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            
+            tutor = TutorDetails.objects.get(account=request.user)
+
+            print(f"✅ Tutor found: {tutor.id} - {tutor}")
+
+            # Fetch tutor’s courses
+            courses = Course.objects.filter(created_by=tutor)
+            print(f"📚 Found {courses.count()} courses for this tutor")
+
+            total_courses = courses.count()
+            active_courses = courses.filter(is_active=True).count()
+            draft_courses = courses.filter(is_draft=True).count()
+
+            pending_courses = courses.filter(status='pending').count()
+            accepted_courses = courses.filter(status='accepted').count()
+            rejected_courses = courses.filter(status='rejected').count()
+
+            # Enrollments and revenue
+            enrollments = UserCourseEnrollment.objects.filter(course__in=courses)
+            print(f"👥 Total enrollments: {enrollments.count()}")
+
+            total_students = enrollments.values('user').distinct().count()
+            completed_students = enrollments.filter(status='completed').count()
+            ongoing_students = enrollments.filter(status='progress').count()
+
+            total_revenue = enrollments.aggregate(total=Sum('course__price'))['total'] or 0
+            monthly_revenue = enrollments.filter(
+                enrolled_on__month=timezone.now().month
+            ).aggregate(total=Sum('course__price'))['total'] or 0
+
+            avg_progress = enrollments.aggregate(avg=Avg('progress'))['avg'] or 0
+
+            print(f"💰 Total revenue: {total_revenue}, Monthly revenue: {monthly_revenue}")
+            print(f"📈 Average progress: {avg_progress}")
+
+            recent_enrollments = (
+                enrollments.select_related('user', 'course')
+                .order_by('-enrolled_on')[:5]
+                .values('user__first_name', 'user__last_name', 'course__title', 'enrolled_on', 'status')
+            )
+
+            print(f"🕓 Recent enrollments fetched: {len(recent_enrollments)}")
+
+            data = {
+                "summary": {
+                    "total_courses": total_courses,
+                    "active_courses": active_courses,
+                    "draft_courses": draft_courses,
+                    "pending_courses": pending_courses,
+                    "accepted_courses": accepted_courses,
+                    "rejected_courses": rejected_courses,
+                    "total_students": total_students,
+                    "completed_students": completed_students,
+                    "ongoing_students": ongoing_students,
+                    "avg_progress": round(avg_progress, 2),
+                    "total_revenue": round(total_revenue, 2),
+                    "monthly_revenue": round(monthly_revenue, 2),
+                },
+                "recent_enrollments": [
+                    {
+                        "user": f"{e['user__first_name']} {e['user__last_name']}",
+                        "course": e["course__title"],
+                        "status": e["status"],
+                        "date": e["enrolled_on"].strftime("%b %d, %Y")
+                    }
+                    for e in recent_enrollments
+                ],
+            }
+
+            print("✅ TutorDashboardView executed successfully.")
+            return Response(data, status=200)
+
+        except Exception as e:
+            print("❌ ERROR in TutorDashboardView:", e)
+            traceback.print_exc()
+            return Response({"error": str(e)}, status=500)
 
 
-
-# Create your views here.
 class TutorSubscribedCheckView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -815,7 +896,6 @@ class CourseMonthlyTrendsView(APIView):
     
     def get(self, request, id):
         try:
-
             try:
                 course = Course.objects.get(id=id)
             except Course.DoesNotExist:
@@ -826,16 +906,12 @@ class CourseMonthlyTrendsView(APIView):
             start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
             start_of_year = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
 
-
             enrollments = UserCourseEnrollment.objects.filter(course=course)
 
 
             total_users = enrollments.values("user").distinct().count()
-
-
             monthly_purchases = enrollments.filter(enrolled_on__gte=start_of_month).count()
             yearly_purchases = enrollments.filter(enrolled_on__gte=start_of_year).count()
-
 
             total_revenue = enrollments.aggregate(total=Sum(F("course__price")))["total"] or 0
             monthly_revenue = enrollments.filter(enrolled_on__gte=start_of_month).aggregate(total=Sum(F("course__price")))["total"] or 0
@@ -844,16 +920,54 @@ class CourseMonthlyTrendsView(APIView):
 
             prev_month_start = (start_of_month - timedelta(days=1)).replace(day=1)
             prev_month_end = start_of_month - timedelta(seconds=1)
-
-
             prev_month_count = enrollments.filter(enrolled_on__range=(prev_month_start, prev_month_end)).count()
+
             growth_rate = 0
             if prev_month_count > 0:
                 growth_rate = ((monthly_purchases - prev_month_count) / prev_month_count) * 100
 
-
             average_revenue_per_user = total_revenue / total_users if total_users > 0 else 0
-            
+
+
+            monthly_trends_qs = (
+                enrollments
+                .filter(enrolled_on__year=now.year)
+                .annotate(month=TruncMonth("enrolled_on"))
+                .values("month")
+                .annotate(
+                    purchases=Count("id"),
+                    revenue=Sum(F("course__price")),
+                )
+                .order_by("month")
+            )
+            monthly_trends = [
+                {
+                    "month": m["month"].strftime("%b %Y"),
+                    "purchases": m["purchases"],
+                    "revenue": m["revenue"] or 0
+                }
+                for m in monthly_trends_qs
+            ]
+
+
+            yearly_trends_qs = (
+                enrollments
+                .annotate(year=TruncYear("enrolled_on"))
+                .values("year")
+                .annotate(
+                    purchases=Count("id"),
+                    revenue=Sum(F("course__price")),
+                )
+                .order_by("year")
+            )
+            yearly_trends = [
+                {
+                    "year": y["year"].year,
+                    "purchases": y["purchases"],
+                    "revenue": y["revenue"] or 0
+                }
+                for y in yearly_trends_qs
+            ]
 
 
             data = {
@@ -865,6 +979,8 @@ class CourseMonthlyTrendsView(APIView):
                 "yearly_revenue": round(yearly_revenue, 2),
                 "growth_rate": round(growth_rate, 2),
                 "average_revenue_per_user": round(average_revenue_per_user, 2),
+                "monthly_trends": monthly_trends,
+                "yearly_trends": yearly_trends,
             }
 
             return Response(data, status=status.HTTP_200_OK)
