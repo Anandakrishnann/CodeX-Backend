@@ -36,7 +36,7 @@ from django.core.mail import EmailMessage
 from django.http import FileResponse
 from PIL import Image, ImageDraw, ImageFont
 from django.http import HttpResponse, Http404
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 import logging
 import stripe # type: ignore
@@ -465,6 +465,111 @@ class ResetPasswordView(APIView):
 
 
 
+class UserDashboardView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            user = request.user
+            print("🔹 User:", user.id, user.email)
+
+            # ======== Basic Stats ========
+            active_courses = UserCourseEnrollment.objects.filter(user=user, status='progress').count()
+            completed_courses = UserCourseEnrollment.objects.filter(user=user, status='completed').count()
+            print("🟢 Active Courses:", active_courses)
+            print("🔵 Completed Courses:", completed_courses)
+
+            achievements = 0  
+            day_streak = 0   
+
+            # ======== Current Active Course ========
+            current_enrollment = (
+                UserCourseEnrollment.objects
+                .filter(user=user, status='progress')
+                .select_related('course')
+                .first()
+            )
+            print("📘 Current Enrollment:", current_enrollment)
+
+            current_course_data = None
+            if current_enrollment:
+                course = current_enrollment.course
+                print("🎯 Current Course:", course.title, course.id)
+
+                # Debugging module & lesson queries
+                total_modules = ModuleProgress.objects.filter(module__course=course, user=user).count()
+                total_lessons = LessonProgress.objects.filter(lesson__module__course=course, user=user).count()
+                print("📦 Total Modules:", total_modules)
+                print("📚 Total Lessons:", total_lessons)
+
+                completed_modules = ModuleProgress.objects.filter(module__course=course, user=user, status='completed').count()
+                completed_lessons = LessonProgress.objects.filter(lesson__module__course=course, user=user, status='completed').count()
+                print("✅ Completed Modules:", completed_modules)
+                print("🏁 Completed Lessons:", completed_lessons)
+
+                current_course_data = {
+                    "id": course.id,
+                    "title": course.title,
+                    "description": course.description,
+                    "level": course.level,
+                    "progress": float(current_enrollment.progress),
+                    "status": current_enrollment.status,
+                    "last_accessed": current_enrollment.enrolled_on,
+                    "modules_total": total_modules,
+                    "modules_completed": completed_modules,
+                    "lessons_total": total_lessons,
+                    "lessons_completed": completed_lessons
+                }
+            else:
+                print("⚠️ No current active course found for user")
+
+            # ======== All Completed Courses ========
+            completed_enrollments = (
+                UserCourseEnrollment.objects
+                .filter(user=user, status='completed')
+                .select_related('course')
+                .order_by('-completed_at')
+            )
+            print("🏆 Completed Enrollments:", completed_enrollments.count())
+
+            completed_courses_list = []
+            for enrollment in completed_enrollments:
+                course = enrollment.course
+                completed_courses_list.append({
+                    "id": course.id,
+                    "title": course.title,
+                    "description": course.description,
+                    "completed_on": enrollment.completed_at,
+                })
+
+            # ======== Final Response ========
+            # Backward compatibility: also expose the first completed course as completed_course
+            first_completed = completed_courses_list[0] if completed_courses_list else None
+
+            response = {
+                "stats": {
+                    "active_courses": active_courses,
+                    "completed_courses": completed_courses,
+                    "achievements": achievements,
+                    "day_streak": day_streak
+                },
+                "current_course": current_course_data,
+                "completed_courses": completed_courses_list,
+                "completed_course": first_completed
+            }
+
+            print("🧾 Final Response:", response)
+            return Response(response, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            print("🚨 Dashboard error:", str(e))
+            return Response(
+                {"error": "Error while fetching user dashboard data"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+
 class UserProfileView(APIView):
 
     def get(self, request):
@@ -782,6 +887,74 @@ class CreateCheckoutSessionView(APIView):
 
 
 
+
+
+class StripeSuccessView(APIView):
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        session_id = request.GET.get('session_id')
+        redirect_url = request.GET.get('redirect', 'http://localhost:3000/success')
+        
+        if not session_id:
+            return Response({"error": "No session ID provided"}, status=400)
+        
+        try:
+            # Retrieve the checkout session from Stripe
+            session = stripe.checkout.Session.retrieve(session_id)
+            
+            # Extract data from the session
+            tutor_id = session.get('client_reference_id')
+            metadata = session.get('metadata') or {}
+            plan_id = metadata.get('plan_id')
+            customer_id = session.get('customer')
+            subscription_id = session.get('subscription')
+            
+            print(f"🎉 Success page accessed with session_id={session_id}")
+            print(f"🎯 tutor_id={tutor_id}, plan_id={plan_id}")
+            
+            try:
+                # Get the objects
+                plan = Plan.objects.get(id=plan_id)
+                account = Accounts.objects.get(id=tutor_id)
+                tutor = TutorDetails.objects.get(account=account)
+                
+                # Calculate expiration date
+                if plan.plan_type == 'MONTHLY':
+                    expires_on = now() + timedelta(days=30)
+                elif plan.plan_type == 'YEARLY':
+                    expires_on = now() + timedelta(days=365)
+                else:
+                    expires_on = now()
+                
+                # Create or update subscription
+                subscription, created = TutorSubscription.objects.update_or_create(
+                    tutor=tutor,
+                    defaults={
+                        'plan': plan,
+                        'subscribed_on': now(),
+                        'expires_on': expires_on,
+                        'is_active': True,
+                        'stripe_customer_id': customer_id,
+                        'stripe_subscription_id': subscription_id,
+                    }
+                )
+                
+                print(f"✅ Subscription {'created' if created else 'updated'}: {subscription}")
+                
+                # Redirect to frontend success page
+                return redirect(redirect_url)
+                
+            except Exception as e:
+                print(f"❌ Error creating subscription: {e}")
+                import traceback
+                traceback.print_exc()
+                # Still redirect even on error
+                return redirect(f"{redirect_url}?error={str(e)}")
+                
+        except stripe.error.StripeError as e:
+            print(f"❌ Stripe error: {e}")
+            return redirect(f"{redirect_url}?error=Invalid session")
 
 
 class TutorDetailsView(APIView):

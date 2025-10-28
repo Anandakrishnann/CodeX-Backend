@@ -6,6 +6,9 @@ from django.contrib.auth import authenticate
 import os
 from tutorpanel.models import *
 from adminpanel.models import *
+from django.db.models import Sum, Count, F, Avg
+
+
 
 class UserRegisterSerializer(serializers.ModelSerializer):
     class Meta:
@@ -153,6 +156,40 @@ class EditUserSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         instance.save()
         return instance
+
+
+
+class DashboardCourseSerializer(serializers.ModelSerializer):
+    progress = serializers.DecimalField(max_digits=5, decimal_places=2)
+    modules_total = serializers.SerializerMethodField()
+    modules_completed = serializers.SerializerMethodField()
+    lessons_total = serializers.SerializerMethodField()
+    lessons_completed = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Course
+        fields = [
+            'id', 'title', 'description', 'level', 'progress', 'status',
+            'modules_total', 'modules_completed', 'lessons_total', 'lessons_completed'
+        ]
+
+    def get_modules_total(self, obj):
+        return obj.modules_set.count()
+
+    def get_modules_completed(self, obj):
+        user = self.context['request'].user
+        return ModuleProgress.objects.filter(
+            user=user, module__course=obj, status='completed'
+        ).count()
+
+    def get_lessons_total(self, obj):
+        return obj.modules_set.prefetch_related('lessons_set').aggregate(total=Count('lessons'))['total']
+
+    def get_lessons_completed(self, obj):
+        user = self.context['request'].user
+        return LessonProgress.objects.filter(
+            user=user, lesson__module__course=obj, status='completed'
+        ).count()
 
 
 
