@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>New Meeting Scheduled</title>
+</head>
+
+<body style="font-family: Arial, sans-serif; background-color: #f7f7f9; padding: 20px;">
+
+    <div style="max-width: 600px; margin: auto; background: #ffffff; border-radius: 10px;
+                padding: 25px; border: 1px solid #e5e5e5;">
+
+        <h2 style="color: #333; margin-bottom: 10px;">📢 New Meeting Scheduled</h2>
+
+        <p style="font-size: 15px; color: #555;">
+            Hello <strong>{{ name }}</strong>,
+        </p>
+
+        <p style="font-size: 15px; color: #555; line-height: 1.6;">
+            Your tutor <strong>{{ tutor_name }}</strong> has scheduled a new meeting exclusively 
+            for students currently enrolled and learning their course.
+        </p>
+
+        <p style="font-size: 15px; color: #555;">
+            Here are the meeting details:
+        </p>
+
+        <ul style="font-size: 15px; color: #555; line-height: 1.8;">
+            <li>📅 <strong>Date:</strong> {{ meeting_date }}</li>
+            <li>🕒 <strong>Time:</strong> {{ meeting_time }}</li>
+            <li>👥 <strong>Limited slots:</strong> Book before it fills!</li>
+        </ul>
+
+        <p style="font-size: 15px; color: #444; margin-top: 20px;">
+            If you wish to attend, please visit the meeting page and grab your slot 
+            before the limit is reached.
+        </p>
+
+        <p style="margin-top: 25px; font-size: 13px; color: #888;">
+            This meeting is only available to students who purchased the course and are 
+            currently progressing through its modules.
+        </p>
+
+        <p style="margin-top: 15px; font-size: 13px; color: #888;">– CodexLearning Team</p>
+
+    </div>
+
+</body>
+</html>

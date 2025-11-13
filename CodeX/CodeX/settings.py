@@ -46,12 +46,13 @@ INSTALLED_APPS = [
     "corsheaders",
     'rest_framework',
     'rest_framework_simplejwt',
-    "rest_framework_simplejwt.token_blacklist", 
+    'rest_framework_simplejwt.token_blacklist', 
     'Accounts',
     'adminpanel',
     'tutorpanel',
     'channels',
     'chat',
+    'notifications'
 ]
 
 MIDDLEWARE = [
@@ -186,6 +187,7 @@ EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
 STRIPE_PUBLIC_KEY = os.getenv('STRIPE_PUBLIC_KEY')
 STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY')
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+print(STRIPE_WEBHOOK_SECRET)
 
 
 # Password validation

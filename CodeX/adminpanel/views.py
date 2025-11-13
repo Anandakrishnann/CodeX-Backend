@@ -23,6 +23,7 @@ from django.db.models.functions import TruncMonth, TruncYear, ExtractYear
 import traceback
 from Accounts.models import *
 from tutorpanel.models import *
+from notifications.utils import send_notification
 
 
 
@@ -220,6 +221,10 @@ class Status(APIView):
 
             user.isblocked = not user.isblocked
             user.save()
+            if user.isblocked:
+                send_notification(user, "Your account was blocked by admin. Please contact support.")
+            else:
+                send_notification(user, "Your account was unblocked by admin. You can continue using the app.")
 
             return Response({"message": "Status updated successfully", "status": user.isblocked}, status=status.HTTP_200_OK)
         except:
@@ -243,6 +248,11 @@ class TutorStatus(APIView):
             user.isblocked = not user.isblocked
             user.save()
 
+            if user.isblocked:
+                send_notification(user, "Your account was blocked by admin. Please contact support.")
+            else:
+                send_notification(user, "Your account was unblocked by admin. You can continue using the app.")
+            
             return Response({"message": "Status updated successfully", "status": user.isblocked}, status=status.HTTP_200_OK)
         except:
             return Response({"Error": "Error While Chaning the status"}, status=status.HTTP_400_BAD_REQUEST)
@@ -253,38 +263,64 @@ class TutorApplicationView(APIView):
     parser_classes = (MultiPartParser, FormParser)
 
     def post(self, request):
-        data = request.data.dict()  # <-- Change here
+        data = {k: v for k, v in request.data.items()}
+        print("\n🟩 Incoming Tutor Application Request")
+        print("Incoming data:", data)
+        print("Incoming files:", request.FILES)
 
-        # Convert to strings for these fields (to prevent type errors)
-        for field in ['full_name', 'email', 'phone', 'education', 'expertise', 'occupation', 'experience', 'about', 'dob']:
-            if field in data:
-                data[field] = str(data[field])
-        
-        # Upload files to Cloudinary
+        # 🔍 Detailed debug for each file
+        for key, file in request.FILES.items():
+            print(f"➡️ File field: {key}")
+            print(f"   Name: {file.name}")
+            print(f"   Content type: {file.content_type}")
+            print(f"   Size: {file.size / (1024 * 1024):.2f} MB")
+
+        # Upload files
         try:
-            if 'profile_picture' in request.FILES:
-                profile_pic = request.FILES['profile_picture']
-                upload_result = cloudinary.uploader.upload(profile_pic, folder="profile_picture", resource_type="image")
+            if request.FILES.get('profile_picture'):
+                profile_file = request.FILES['profile_picture']
+                print(f"📸 Uploading profile picture ({profile_file.name}, {profile_file.size / (1024 * 1024):.2f} MB)")
+                upload_result = cloudinary.uploader.upload(
+                    profile_file,
+                    folder="profile_picture",
+                    resource_type="image"
+                )
                 data['profile_picture'] = upload_result.get('secure_url')
 
-            if 'verification_file' in request.FILES:
-                verification_file = request.FILES['verification_file']
-                upload_result = cloudinary.uploader.upload(verification_file, folder="verification_docs", resource_type="raw")
+            if request.FILES.get('verification_file'):
+                doc_file = request.FILES['verification_file']
+                print(f"📄 Uploading verification file ({doc_file.name}, {doc_file.size / (1024 * 1024):.2f} MB)")
+                upload_result = cloudinary.uploader.upload(
+                    doc_file,
+                    folder="verification_docs",
+                    resource_type="raw"
+                )
                 data['verification_file'] = upload_result.get('secure_url')
 
-            if 'verification_video' in request.FILES:
-                verification_video = request.FILES['verification_video']
-                upload_result = cloudinary.uploader.upload(verification_video, folder="verification_videos", resource_type="video")
+            if request.FILES.get('verification_video'):
+                video_file = request.FILES['verification_video']
+                print(f"🎥 Uploading verification video ({video_file.name}, {video_file.size / (1024 * 1024):.2f} MB)")
+                print("📊 Cloudinary upload starting...")
+                upload_result = cloudinary.uploader.upload(
+                    video_file,
+                    folder="verification_videos",
+                    resource_type="video"
+                )
+                print("✅ Cloudinary upload success:", upload_result.get('secure_url'))
                 data['verification_video'] = upload_result.get('secure_url')
+
         except Exception as e:
+            print("❌ Cloudinary upload failed:", e)
             return Response({"error": "File upload failed", "details": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Continue with serializer
         serializer = TutorApplicationSerializer(data=data, context={"request": request})
         if serializer.is_valid():
-            serializer.save()
+            serializer.save(account=request.user)
+            print("✅ Tutor application saved successfully.")
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         else:
-            print(serializer.errors)
+            print("❌ Serializer errors:", serializer.errors)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -366,42 +402,57 @@ class AcceptApplicationView(APIView):
     def post(self, request, applicationId):
         try:
             application = get_object_or_404(TutorApplications, id=applicationId)
-            
             user = get_object_or_404(Accounts, email=application.email)
             print(f"user object: {user}")
 
             if not application.dob:
                 return Response({"error": "Date of Birth is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-            try:
-                tutor = TutorDetails.objects.create(
-                    account=user,
-                    full_name=application.full_name,
-                    dob=application.dob,
-                    about=application.about,
-                    education=application.education,
-                    expertise=application.expertise,
-                    occupation=application.occupation,
-                    experience=application.experience,
-                    profile_picture=application.profile_picture,
-                    verification_file=application.verification_file,
-                    verification_video=application.verification_video,
-                    status="verified"
-                )
-                print(f"Tutor Created: {tutor}")
-            except Exception as e:
-                print(f"Error While Creating Tutor: {e}")
-                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            tutor, created = TutorDetails.objects.get_or_create(
+                account=user,
+                defaults={
+                    "full_name": application.full_name,
+                    "dob": application.dob,
+                    "about": application.about,
+                    "education": application.education,
+                    "expertise": application.expertise,
+                    "occupation": application.occupation,
+                    "experience": application.experience,
+                    "profile_picture": application.profile_picture,
+                    "verification_file": application.verification_file,
+                    "verification_video": application.verification_video,
+                    "status": "verified"
+                }
+            )
 
+            if not created:
+                tutor.full_name = application.full_name
+                tutor.dob = application.dob
+                tutor.about = application.about
+                tutor.education = application.education
+                tutor.expertise = application.expertise
+                tutor.occupation = application.occupation
+                tutor.experience = application.experience
+                tutor.profile_picture = application.profile_picture
+                tutor.verification_file = application.verification_file
+                tutor.verification_video = application.verification_video
+                tutor.status = "verified"
+                tutor.save()
+
+            send_notification(user, "Your Application accepted by admin. Complete subscription to become a tutor.")
+            print(f"Tutor Created or Updated: {tutor}")
+
+            # Update user role & application status
             user.role = "tutor"
             user.save()
             application.status = "verified"
             application.save()
 
-            return Response({"success": "Tutor Data added successfully"}, status=status.HTTP_201_CREATED)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"success": "Tutor Data added/updated successfully"}, status=status.HTTP_201_CREATED)
 
+        except Exception as e:
+            print(f"Error While Creating Tutor: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class RejectApplicationView(APIView):
@@ -417,6 +468,11 @@ class RejectApplicationView(APIView):
             
             application.status = "rejected"
             application.save()
+
+            user = get_object_or_404(Accounts, email=application.email)
+            print(f"user object: {user}")
+            
+            send_notification(user, "Your Application rejected by admin contact help serivce.")
 
             return Response({"success":"Application Rejected"}, status=status.HTTP_201_CREATED)
         
@@ -442,7 +498,7 @@ class EditUserView(APIView):
     def put(self, request, email):
         try:
             try:
-                user = User.objects.get(email=email)
+                user = Accounts.objects.get(email=email)
             except Accounts.DoesNotExist:
                 return Response({"error":"Account not found"}, status=status.HTTP_404_NOT_FOUND)
             
@@ -607,6 +663,11 @@ class CourseStatusView(APIView):
             
             course.is_active = not course.is_active
             course.save()
+            
+            tutor_user = course.created_by.account  
+            
+            send_notification(tutor_user, "Your Course Status Changed by admin. Please contact support.")
+            
             return Response({"message": "Status updated successfully", "status": course.is_active}, status=status.HTTP_200_OK)
         except:
             return Response({"Error": "Error While Updating the status"}, status=status.HTTP_400_BAD_REQUEST)
@@ -643,39 +704,73 @@ class ListCoursesView(APIView):
             return Response({"error":"Error While Fetching Course Request"}, status=status.HTTP_400_BAD_REQUEST)
 
 
+
 class CoureseStatusView(APIView):
     
     def post(self, request, id):
         try:
             course = get_object_or_404(Course, id=id)
+            
+            tutor = get_object_or_404(TutorDetails, id=course.created_by)
+            
+            user = get_object_or_404(Accounts, id=tutor.account)
 
             if not course:
                 return Response({"Error":"Course Does Not Exists"}, status=status.HTTP_400_BAD_REQUEST)
             
             course.is_active = not course.is_active
             course.save()
+            
+            if course.is_active == True:
+                send_notification(user, f"Your {course.name} course status was changed by admin.")
+            else:
+                send_notification(user, f"Your {course.name} course was deactivated by admin. Please contact support if needed.")
+                
             return Response({"message": "Status updated successfully", "status": course.is_active}, status=status.HTTP_200_OK)
         except:
             return Response({"Error": "Error While Updating the status"}, status=status.HTTP_400_BAD_REQUEST)
         
 
+import logging
+# Configure logger
+logger = logging.getLogger(__name__)
 
 class AcceptCourseRequestView(APIView):
-
     def post(self, request, courseId):
+        logger.info(f"[AcceptCourseRequestView] POST request received for courseId={courseId}")
+
         try:
             course = get_object_or_404(Course, id=courseId)
+            logger.debug(f"[DEBUG] Course found: {course.name} (status={course.status})")
 
-            if not course:
-                return Response({"error":"Course Not Found"}, status=status.HTTP_404_NOT_FOUND)
-            
+            # ✅ FIX: Directly access the related tutor
+            tutor = course.created_by
+            logger.debug(f"[DEBUG] Tutor fetched from course: {tutor}")
+
+            # ✅ Get tutor's account
+            user = get_object_or_404(Accounts, id=tutor.account.id)
+            logger.debug(f"[DEBUG] Tutor's account found: {user.email}")
+
+            # ✅ Update course status
             course.status = "accepted"
             course.is_active = True
             course.save()
-            return Response({})
-        except:
+            logger.info(f"[INFO] Course '{course.name}' accepted successfully.")
+
+            # ✅ Notify tutor
+            try:
+                send_notification(user, f"🎉 Your course '{course.name}' was accepted by admin.")
+                logger.info(f"[SUCCESS] Notification sent to {user.email} for course '{course.name}'.")
+            except Exception as notify_error:
+                logger.error(f"[ERROR] Failed to send notification: {notify_error}", exc_info=True)
+
+            return Response({"message": "course accepted successfully"}, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.exception(f"[EXCEPTION] Error while accepting course request for courseId={courseId}: {e}")
             return Response({"Error": "Error While Accepting Course Request"}, status=status.HTTP_400_BAD_REQUEST)
         
+
 
 class RejectCourseRequestView(APIView):
 
@@ -683,13 +778,20 @@ class RejectCourseRequestView(APIView):
         try:
             course = get_object_or_404(Course, id=courseId)
 
+            tutor = course.created_by
+
+            user = get_object_or_404(Accounts, id=tutor.account.id)
+
             if not course:
                 return Response({"error":"Course Not Found"}, status=status.HTTP_404_NOT_FOUND)
             
             course.status = "rejected"
             course.is_active = False
             course.save()
-            return Response({})
+            
+            send_notification(user, f"Your {course.name} course was rejected by admin. Please contact support.")
+            
+            return Response({"message":"course rejected successfully"}, status=status.HTTP_200_OK)
         except:
             return Response({"Error": "Error While Rjecting Course Request"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -707,6 +809,16 @@ class AcceptModuleView(APIView):
             module.status = "accepted"
             module.is_active = True
             module.save()
+
+            # Notify tutor
+            try:
+                tutor = module.course.created_by
+                tutor_user = tutor.account if hasattr(tutor, 'account') else None
+                if tutor_user:
+                    send_notification(tutor_user, f"Your module '{module.title}' was approved by admin.")
+            except Exception:
+                pass
+
             return Response({})
         except:
             return Response({"Error": "Error While Accepting Course Request"}, status=status.HTTP_400_BAD_REQUEST)
@@ -726,9 +838,20 @@ class RejectModuleView(APIView):
             module.status = "rejected"
             module.is_active = False
             module.save()
+
+            # Notify tutor
+            try:
+                tutor = module.course.created_by
+                tutor_user = tutor.account if hasattr(tutor, 'account') else None
+                if tutor_user:
+                    send_notification(tutor_user, f"Your module '{module.title}' was rejected by admin.")
+            except Exception:
+                pass
+
             return Response({})
         except:
             return Response({"Error": "Error While Accepting Course Request"}, status=status.HTTP_400_BAD_REQUEST)
+
 
 
 class ListCourseModulesView(APIView):
@@ -752,6 +875,7 @@ class ListCourseModulesView(APIView):
             return Response({"error": "Something went wrong"}, status=status.HTTP_400_BAD_REQUEST)
 
 
+
 class CourseOverView(APIView):
 
     def get(self, request, id):
@@ -766,6 +890,7 @@ class CourseOverView(APIView):
         except Exception as e:
             print(f"Error fetching course overview: {e}")
             return Response({"error": "Something went wrong"}, status=status.HTTP_400_BAD_REQUEST)
+
 
 
 class ModuleDetailView(APIView):
@@ -794,6 +919,17 @@ class ModuleStatusView(APIView):
             
             module.is_active = not module.is_active
             module.save()
+
+            # Notify tutor about visibility change
+            try:
+                tutor = module.course.created_by
+                tutor_user = tutor.account if hasattr(tutor, 'account') else None
+                if tutor_user:
+                    visibility = "activated" if module.is_active else "deactivated"
+                    send_notification(tutor_user, f"Your module '{module.title}' was {visibility} by admin.")
+            except Exception:
+                pass
+
             return Response({"detail":"Status Changed Successfully"}, status=status.HTTP_200_OK)
         except:
             return Response({"error":"Error While Changing Module Status"}, status=status.HTTP_400_BAD_REQUEST)
@@ -822,6 +958,7 @@ class ListCourseLessonView(APIView):
             return Response({"error": f"Error While Fetching Lessons: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
 
+
 class AcceptLessonView(APIView):
 
     def post(self, request, lessonId):
@@ -832,6 +969,16 @@ class AcceptLessonView(APIView):
             lesson.status = "accepted"
             lesson.is_active = True
             lesson.save()
+
+            # Notify tutor
+            try:
+                tutor = lesson.module.course.created_by
+                tutor_user = tutor.account if hasattr(tutor, 'account') else None
+                if tutor_user:
+                    send_notification(tutor_user, f"Your lesson '{lesson.title}' was approved by admin.")
+            except Exception:
+                pass
+
             return Response({"detail":"Lesson Accepted Successfully"}, status=status.HTTP_200_OK) 
         except:
             return Response({"error":"Error While Accepting Lesson"}, status=status.HTTP_400_BAD_REQUEST)
@@ -848,6 +995,16 @@ class RejectLessonView(APIView):
             lesson.status = "rejected"
             lesson.is_active = False
             lesson.save()
+
+            # Notify tutor
+            try:
+                tutor = lesson.module.course.created_by
+                tutor_user = tutor.account if hasattr(tutor, 'account') else None
+                if tutor_user:
+                    send_notification(tutor_user, f"Your lesson '{lesson.title}' was rejected by admin.")
+            except Exception:
+                pass
+
             return Response({"detail":"Lesson Rejected Successfully"}, status=status.HTTP_200_OK) 
         except:
             return Response({"error":"Error While Rejecting Lesson"}, status=status.HTTP_400_BAD_REQUEST)
@@ -865,6 +1022,17 @@ class LessonStatusView(APIView):
             
             lesson.is_active = not lesson.is_active
             lesson.save()
+
+            # Notify tutor about visibility change
+            try:
+                tutor = lesson.module.course.created_by
+                tutor_user = tutor.account if hasattr(tutor, 'account') else None
+                if tutor_user:
+                    visibility = "activated" if lesson.is_active else "deactivated"
+                    send_notification(tutor_user, f"Your lesson '{lesson.title}' was {visibility} by admin.")
+            except Exception:
+                pass
+
             return Response({"detail":"Status Changed Successfully"}, status=status.HTTP_200_OK)
         except: 
             return Response({"error":"Error While Changing Lesson Status"}, status=status.HTTP_400_BAD_REQUEST)

@@ -23,11 +23,16 @@ class StripeWebhookView(APIView):
         payload = request.body
         sig_header = request.META.get('HTTP_STRIPE_SIGNATURE')
         webhook_secret = settings.STRIPE_WEBHOOK_SECRET
-
+        
         print(f"🔔 Webhook endpoint called")
         print(f"Payload length: {len(payload)}")
         print(f"Signature header: {sig_header}")
         print(f"Webhook secret exists: {bool(webhook_secret)}")
+        if webhook_secret:
+            print(f"Loaded webhook secret: {webhook_secret[:20]}...")
+        else:
+            print("❌ STRIPE_WEBHOOK_SECRET is not set!")
+            return HttpResponse("Webhook secret not configured", status=500)
         
         try:
             event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)

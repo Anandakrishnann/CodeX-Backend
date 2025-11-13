@@ -20,6 +20,7 @@ from django.conf import settings
 from django.db.models import Sum, Count, F, Avg
 from django.db.models.functions import TruncMonth, TruncYear
 import traceback
+from notifications.utils import send_notification
 
 
 class TutorDashboardView(APIView):
@@ -110,11 +111,24 @@ class TutorSubscribedCheckView(APIView):
 
     def get(self, request):
         try:
-            tutor = get_object_or_404(TutorDetails, account=request.user)
-            is_subscribed = TutorSubscription.objects.filter(tutor=tutor).exists()
+            if request.user.role != "tutor":
+                print("❌ Not a tutor account.")
+                return Response({"subscribed": False}, status=status.HTTP_200_OK)
+
+            try:
+                tutor = TutorDetails.objects.get(account=request.user)
+            except TutorDetails.DoesNotExist:
+                print("❌ TutorDetails not found for user.")
+                return Response({"subscribed": False}, status=status.HTTP_200_OK)
+
+            is_subscribed = TutorSubscription.objects.filter(tutor=tutor, is_active=True).exists()
+            print(f"✅ Subscription check for {request.user.email}: {is_subscribed}")
+
             return Response({"subscribed": is_subscribed}, status=status.HTTP_200_OK)
+
         except Exception as e:
-            return Response({"subscribed": False}, status=status.HTTP_200_OK)
+            print(f"Error in TutorSubscribedCheckView: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 
@@ -505,56 +519,81 @@ class CreateLessonView(APIView):
 
     def post(self, request):
         try:
+            print("🔹 Incoming Data:", request.data)
             tutor_id = request.user
-            if not tutor_id.role == 'tutor':
-                return Response({"detail": "Tutor Does Not Exists"}, status=status.HTTP_404_NOT_FOUND)   
-            
-            try:
-                tutor = get_object_or_404(TutorDetails, account=tutor_id)
-            except TutorDetails.DoesNotExist:
-                return Response({"error":"Tutor Does Not Exists"}, status=status.HTTP_404_NOT_FOUND)
-            
-            module_id = request.data.pop('module_id')
+
+            # ✅ Validate tutor role
+            if tutor_id.role != 'tutor':
+                return Response({"detail": "Tutor does not exist"}, status=status.HTTP_404_NOT_FOUND)
+
+            tutor = get_object_or_404(TutorDetails, account=tutor_id)
+
+            # ✅ Extract normal form data (no .copy() or deepcopy)
+            data = dict(request.data)
+            module_id = request.data.get('module_id')
+
+            if not module_id:
+                return Response({"error": "Module ID is required"}, status=status.HTTP_400_BAD_REQUEST)
 
             try:
-                module = get_object_or_404(Modules, id=module_id)
+                module = Modules.objects.get(id=int(module_id))
             except Modules.DoesNotExist:
-                return Response({"error":"Module Not Found"}, status=status.HTTP_404_NOT_FOUND)
-            
-            data = request.data.dict() 
-            
-            for field in ['title','description']:
-                if field in data:
-                    data[field] = str(data[field])
+                return Response({"error": "Module not found"}, status=status.HTTP_404_NOT_FOUND)
 
+            # ✅ Convert string fields
+            data['title'] = request.data.get('title')
+            data['description'] = request.data.get('description')
+
+            # ✅ Handle Cloudinary uploads
             try:
-                if 'thumbnail' in request.FILES:
-                    thumbnail = request.FILES['thumbnail']
-                    upload_result = cloudinary.uploader.upload(thumbnail, folder="thumbnail", resource_type="image")
-                    data['thumbnail'] = upload_result.get('secure_url')
+                upload_fields = [
+                    ('thumbnail', 'thumbnail', 'image'),
+                    ('documents', 'documents', 'auto'),  # for .docx, .pdf, etc.
+                    ('video', 'videos', 'video'),
+                ]
 
-                if 'documents' in request.FILES:
-                    documents = request.FILES['documents']
-                    upload_result = cloudinary.uploader.upload(documents, folder="documents", resource_type="raw")
-                    data['documents'] = upload_result.get('secure_url')
+                for field, folder, rtype in upload_fields:
+                    if field in request.FILES:
+                        file_obj = request.FILES[field]
+                        upload_result = cloudinary.uploader.upload(
+                            file_obj,
+                            folder=folder,
+                            resource_type=rtype
+                        )
+                        data[field] = upload_result.get('secure_url')
 
-                if 'video' in request.FILES:
-                    video = request.FILES['video']
-                    upload_result = cloudinary.uploader.upload(video, folder="videos", resource_type="video")
-                    data['video'] = upload_result.get('secure_url')
-                    
             except Exception as e:
-                return Response({"error": "File upload failed", "details": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-            
-            serializer = CreateLessonSerializer(data=data, context={'tutor': tutor, 'module': module})
+                import traceback
+                print("❌ Cloudinary Upload Error:\n", traceback.format_exc())
+                return Response(
+                    {"error": "File upload failed", "details": str(e)},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # ✅ Create lesson
+            serializer = CreateLessonSerializer(
+                data=data,
+                context={'tutor': tutor, 'module': module}
+            )
+
             if serializer.is_valid():
                 serializer.save()
-                return Response(ListModuleSerializer(serializer.instance).data, status=status.HTTP_201_CREATED)
-            else:
-                return Response(serializer.errors, status=status.HTTP_406_NOT_ACCEPTABLE)
-            
+                return Response(
+                    ListModuleSerializer(serializer.instance).data,
+                    status=status.HTTP_201_CREATED
+                )
+
+            print("❌ Serializer Errors:", serializer.errors)
+            return Response(serializer.errors, status=status.HTTP_406_NOT_ACCEPTABLE)
+
         except Exception as e:
-            return Response({"detail": f"Error Creating lesson: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+            import traceback
+            print("❌ Exception Trace:\n", traceback.format_exc())
+            return Response(
+                {"detail": f"Error Creating lesson: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
 
 
 
@@ -675,101 +714,127 @@ class SheduleMeetingView(APIView):
             except TutorDetails.DoesNotExist:
                 return Response({"error": "Tutor does not exist"}, status=status.HTTP_404_NOT_FOUND)
 
-            with transaction.atomic():
-                meeting = Meetings.objects.create(
-                    tutor=tutor,
-                    date=serializer.validated_data['date'],
-                    time=serializer.validated_data['time'],
-                    limit=serializer.validated_data['limit'],
-                    left=serializer.validated_data['limit'],  
-                )   
+            date = serializer.validated_data['date']
+            time = serializer.validated_data['time']
+            limit = serializer.validated_data['limit']
 
-                # Combine and ensure timezone-aware datetime in IST
-                meeting_datetime = timezone.make_aware(
-                    datetime.combine(meeting.date, meeting.time),
-                    timezone=timezone.get_default_timezone() 
+            if Meetings.objects.filter(tutor=tutor, date=date).exists():
+                return Response(
+                    {"error": "You already have a meeting scheduled on this date."},
+                    status=status.HTTP_400_BAD_REQUEST
                 )
 
-                # Ensure meeting is in the future
+            if Meetings.objects.filter(tutor=tutor, date=date, time=time).exists():
+                return Response(
+                    {"error": "A meeting at this time already exists."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            with transaction.atomic():
+
+                meeting = Meetings.objects.create(
+                    tutor=tutor,
+                    date=date,
+                    time=time,
+                    limit=limit,
+                    left=limit,
+                )
+
+                meeting_datetime = timezone.make_aware(
+                    datetime.combine(meeting.date, meeting.time),
+                    timezone.get_default_timezone()
+                )
+
                 current_time = timezone.now()
+
                 if meeting_datetime <= current_time:
                     raise ValueError("Meeting time must be in the future.")
 
-                # Run 1 minute before meeting
-                run_time = meeting_datetime - timedelta(minutes=15)
 
-
-                # Compare with aware current time
+                run_time = meeting_datetime + timedelta(minutes=15)
                 if run_time <= current_time:
                     raise ValueError("Cannot schedule meeting — start time is too soon.")
+                
 
-                # Schedule task and log task ID
-                task = mark_meeting_complete.apply_async((meeting.id,), eta=run_time)
+                transaction.on_commit(
+                    lambda: send_notification(
+                        request.user,
+                        f"Your {tutor.full_name} has been scheduled meeting. Check your email for details."
+                    )
+                )
 
                 transaction.on_commit(
                     lambda: mark_meeting_complete.apply_async((meeting.id,), eta=run_time)
                 )
+                
+                transaction.on_commit(
+                    lambda: send_meeting_created_email.delay(meeting.id)
+                )
 
             return Response(
-                {"message": "Meeting scheduled successfully", "task_id": task.id},
+                {"message": "Meeting scheduled successfully"},
                 status=status.HTTP_201_CREATED
             )
 
         except Exception as e:
-            print(f"Error: {str(e)}")
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 
 class EditMeetingView(APIView):
     permission_classes = [IsAuthenticated, IsSubscribed]
-    
+
     def post(self, request):
         try:
-            print(request.data)
             meeting_id = request.data.get("meeting_id")
-            print("meeting id is ", meeting_id)
             if not meeting_id:
-                print("meeting id not given")
                 return Response({"error": "Meeting ID is required"}, status=status.HTTP_400_BAD_REQUEST)
 
             try:
                 meeting = Meetings.objects.get(id=meeting_id, is_completed=False)
             except Meetings.DoesNotExist:
-                print("meeting id is not found")
                 return Response({"error": "Meeting does not exist"}, status=status.HTTP_404_NOT_FOUND)
 
-            # Parse and validate date
+            old_date = meeting.date
+            old_time = meeting.time
+
+            date_changed = False
+            time_changed = False
+
             date_str = request.data.get("date")
             if date_str:
                 try:
-                    meeting.date = datetime.strptime(date_str, "%Y-%m-%d").date()
-                except ValueError:
-                    return Response({"error": "Invalid date format. Expected YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+                    new_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                    if new_date != meeting.date:
+                        meeting.date = new_date
+                        date_changed = True
+                except:
+                    return Response({"error": "Invalid date format"}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Parse and validate time
             time_str = request.data.get("time")
             if time_str:
                 try:
-                    meeting.time = datetime.strptime(time_str, "%H:%M:%S").time()
-                except ValueError:
-                    return Response({"error": "Invalid time format. Expected HH:MM:SS."}, status=status.HTTP_400_BAD_REQUEST)
+                    if len(time_str.split(":")) == 2:
+                        new_time = datetime.strptime(time_str, "%H:%M").time()
+                    else:
+                        new_time = datetime.strptime(time_str, "%H:%M:%S").time()
 
-            
-            
+                    if new_time != meeting.time:
+                        meeting.time = new_time
+                        time_changed = True
+                except:
+                    return Response({"error": "Invalid time format"}, status=status.HTTP_400_BAD_REQUEST)
+
             limit_value = request.data.get("limit")
             if limit_value is not None:
                 try:
                     new_limit = int(limit_value)
-                except ValueError:
-                    return Response({"error": "Limit must be a number."}, status=status.HTTP_400_BAD_REQUEST)
+                except:
+                    return Response({"error": "Limit must be numeric"}, status=status.HTTP_400_BAD_REQUEST)
 
-                # Calculate already booked users
-                booked_count = meeting.limit - meeting.left  
-
-                # Prevent reducing limit below already booked users
+                booked_count = meeting.limit - meeting.left
                 if new_limit < booked_count:
-                    return Response({"error": "Cannot set limit less than already booked users."}, status=status.HTTP_400_BAD_REQUEST)
+                    return Response({"error": "Limit cannot be less than already booked users"}, status=status.HTTP_400_BAD_REQUEST)
 
                 meeting.limit = new_limit
                 meeting.left = new_limit - booked_count
@@ -778,18 +843,25 @@ class EditMeetingView(APIView):
 
             booked_users = MeetingBooking.objects.filter(
                 meeting=meeting,
-                meeting_completed = False
+                meeting_completed=False
             ).select_related("user")
-            
-            if not booked_users:
-                return Response({"error": "booked users not found."}, status=status.HTTP_400_BAD_REQUEST)
-            for booking in booked_users:
-                send_meeting_rescheduled_email(meeting.id, booking.user.id)
+
+            if (date_changed or time_changed) and booked_users.exists():
+                for booking in booked_users:
+                    send_meeting_rescheduled_email.delay(meeting.id, booking.user.id)
+                    try:
+                        send_notification(
+                            booking.user,
+                            "Your meeting was rescheduled by the tutor. Check your email for details."
+                        )
+                    except:
+                        pass
 
             return Response({"details": "Meeting edited successfully"}, status=status.HTTP_200_OK)
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
 
 
 
@@ -836,6 +908,10 @@ class DeleteMeetingView(APIView):
                     booking.meeting_completed=True
                     booking.save()
                     send_meeting_cancelled_email.delay(meeting.id, booking.user_id)
+                    try:
+                        send_notification(booking.user, "Your meeting was cancelled by the tutor. Check email for details.")
+                    except Exception:
+                        pass
 
                 return Response({"details": "Meeting cancelled and users notified."}, status=status.HTTP_200_OK)
 

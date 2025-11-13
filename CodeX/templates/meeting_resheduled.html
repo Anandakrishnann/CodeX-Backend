@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Meeting Rescheduled</title>
+</head>
+<body style="font-family: Arial, sans-serif; background-color: #f8f9fa; padding: 20px;">
+
+<div style="max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 8px; border: 1px solid #ddd;">
+    
+    <h2 style="color: #0275d8; text-align: center;">Meeting Rescheduled</h2>
+
+    <p style="font-size: 16px; color: #333;">Hello <strong>{{ name }}</strong>,</p>
+
+    <p style="font-size: 15px; color: #555;">
+        Your scheduled meeting with tutor {{ tutor_name }} has been <strong style="color: #0275d8;">rescheduled</strong>. Please review the updated meeting details below:
+    </p>
+
+    <ul style="font-size: 15px; color: #555; line-height: 1.6;">
+        <li><strong>New Date:</strong> {{ meeting_date }}</li>
+        <li><strong>New Time:</strong> {{ meeting_time }}</li>
+    </ul>
+
+    <p style="font-size: 15px; color: #555;">
+        Make sure the updated schedule works for you. You can join the meeting at the new time as usual.
+    </p>
+
+    <p style="font-size: 15px; color: #555;">
+        Thank you for your understanding.
+    </p>
+
+    <p style="font-size: 13px; color: #999; text-align: center; margin-top: 20px;">
+        &copy; {{ now|date:"Y" }} CodeX Learning. All rights reserved.
+    </p>
+
+</div>
+
+</body>
+</html>

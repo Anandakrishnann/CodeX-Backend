@@ -6,7 +6,7 @@ from datetime import timedelta
 from random import randint
 from datetime import date
 from adminpanel.models import *
-from tutorpanel.models import Course, Lessons, Modules
+from tutorpanel.models import *
 
 # Create your models here.  
 

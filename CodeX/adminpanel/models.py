@@ -1,7 +1,11 @@
 from django.db import models
 from datetime import date
+from django.conf import settings
+
+
 
 class TutorApplications(models.Model):
+    account = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True)
     id = models.BigAutoField(primary_key=True)
     full_name = models.CharField(max_length=255)
     email = models.EmailField(unique=True)

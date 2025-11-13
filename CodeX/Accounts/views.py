@@ -192,7 +192,7 @@ class LoginView(APIView):
                         'streak':user.streak,
                         'is_superuser': user.is_superuser,
                         'plan_details':plan_details,
-                        'categories':categories
+                        'categories':categories,
                     },
                       
                 },
@@ -353,6 +353,7 @@ class CustomTokenRefreshView(TokenRefreshView):
                 samesite="None",
                 max_age=1800,  # 30 minutes
             )
+            
         else:
             return Response({"error": "Invalid refresh token"}, status=status.HTTP_401_UNAUTHORIZED)
 
@@ -867,25 +868,34 @@ class CreateCheckoutSessionView(APIView):
         if not plan.stripe_price_id:
             return Response({"detail": "Plan does not have a Stripe Price ID."}, status=400)
 
-        session = stripe.checkout.Session.create(
-            payment_method_types=['card'],
-            line_items=[{
-                'price': plan.stripe_price_id,
-                'quantity': 1,
-            }],
-            mode='subscription',
-            success_url=f'{domain}/success?session_id={{CHECKOUT_SESSION_ID}}',
-            cancel_url=f'{domain}/cancel',
-            customer_email=request.user.email,
-            client_reference_id=str(request.user.id),
-            metadata={                           
-                "plan_id": str(plan.id)
-            }
-        )
+        try:
+            session = stripe.checkout.Session.create(
+                payment_method_types=['card'],
+                mode='subscription',
+                line_items=[{
+                    'price': plan.stripe_price_id,
+                    'quantity': 1,
+                }],
+                success_url=f'{domain}/success?session_id={{CHECKOUT_SESSION_ID}}',
+                cancel_url=f'{domain}/cancel',
+                customer_email=request.user.email,
+                client_reference_id=str(request.user.id),
+                metadata={
+                    "plan_id": str(plan.id),
+                    "tutor_email": request.user.email,
+                },
+            )
 
-        return Response({'checkout_url': session.url})
+            print(f"✅ Stripe Session created successfully")
+            print(f"Session ID: {session.id}")
+            print(f"client_reference_id: {request.user.id}")
+            print(f"metadata: {{'plan_id': {plan.id}}}")
 
+            return Response({'checkout_url': session.url}, status=200)
 
+        except Exception as e:
+            print(f"❌ Error creating checkout session: {e}")
+            return Response({'detail': str(e)}, status=400)
 
 
 
@@ -955,6 +965,7 @@ class StripeSuccessView(APIView):
         except stripe.error.StripeError as e:
             print(f"❌ Stripe error: {e}")
             return redirect(f"{redirect_url}?error=Invalid session")
+
 
 
 class TutorDetailsView(APIView):
@@ -2028,6 +2039,7 @@ class AvailableMeetingsView(APIView):
             ).exclude(id__in=booked_meeting_ids)
             
             serializer = SheduledMeetingsSerializer(meetings, many=True)
+            print("✅ Final Meetings Sent to Frontend:", serializer.data)
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         except Exception as e:
