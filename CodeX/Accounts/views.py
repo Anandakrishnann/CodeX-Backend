@@ -2200,6 +2200,36 @@ class TutorFeedbackView(APIView):
         except Exception as e:
             logger.exception(f"[POST] Unexpected error: {str(e)}")
             return Response({"error": str(e)}, status=400)
+    
+    def get(self, request, tutor_id): 
+        try: 
+            feedback = TutorFeedback.objects.filter(tutor_id=tutor_id) 
+            
+            avg_rating = feedback.aggregate(avg=models.Avg("rating"))["avg"] 
+
+            serializer = TutorFeedbackSerializer(feedback, many=True) 
+            
+            return Response({ "average_rating": round(avg_rating, 1) 
+                            if avg_rating else 0, 
+                            "total_feedback": feedback.count(),
+                            "feedback": serializer.data }, status=200)
+            
+        except Exception as e: 
+            return Response({"error": str(e)}, status=400) 
+    
+    def delete(self, request, tutor_id): 
+        try: 
+            feedback = TutorFeedback.objects.filter( tutor_id=tutor_id, user=request.user ).first() 
+            
+            if not feedback: 
+                return Response( {"error": "No feedback found for this tutor from this user."}, status=status.HTTP_404_NOT_FOUND ) 
+            
+            feedback.delete() 
+            
+            return Response({"message": "Feedback deleted successfully."}, status=200) 
+        
+        except Exception as e: 
+            return Response({"error": str(e)}, status=400)
 
 
 
@@ -2236,4 +2266,32 @@ class CourseFeedbackView(APIView):
             return Response(serializer.data, status=201)
 
         except Exception as e:
+            return Response({"error": str(e)}, status=400)
+
+    def get(self, request, course_id):
+        try: 
+            feedback = CourseFeedback.objects.filter(course_id=course_id) 
+            
+            avg_rating = feedback.aggregate(avg=models.Avg("rating"))["avg"] 
+            
+            serializer = CourseFeedbackSerializer(feedback, many=True) 
+            
+            return Response({ "average_rating": round(avg_rating, 1) 
+                             if avg_rating else 0, "total_feedback": feedback.count(), 
+                             "feedback": serializer.data }, status=200) 
+            
+        except Exception as e: return Response({"error": str(e)}, status=400) 
+    
+    def delete(self, request, course_id): 
+        try: 
+            feedback = CourseFeedback.objects.filter(course_id=course_id,user=request.user).first() 
+            
+            if not feedback: 
+                return Response({"error": "No feedback found for this course from this user."},status=status.HTTP_404_NOT_FOUND) 
+            
+            feedback.delete() 
+            
+            return Response({"message": "Feedback deleted successfully."}, status=200) 
+        
+        except Exception as e: 
             return Response({"error": str(e)}, status=400)
