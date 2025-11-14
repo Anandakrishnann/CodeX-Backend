@@ -42,4 +42,8 @@ urlpatterns = [
     path("booked-meetings/", BookedMeetingsView.as_view(), name="booked-meetings/"),
     path('book-meeting/', BookMeetingView.as_view(), name='book-meeting'),
     path('recent-meetings/', RecentMeetingsView.as_view(), name='recent-meetings/'),
+    path("tutor/feedback/", TutorFeedbackView.as_view(), name="tutor-feedback-create"),
+    path("tutor/<int:tutor_id>/feedback/", TutorFeedbackView.as_view(), name="tutor-feedback-list-delete"),
+    path("course/feedback/", CourseFeedbackView.as_view(), name="course-feedback-create"),
+    path("course/<int:course_id>/feedback/", CourseFeedbackView.as_view(), name="course-feedback-list-delete"),
 ]

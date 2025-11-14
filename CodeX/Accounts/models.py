@@ -204,3 +204,30 @@ class LessonProgress(models.Model):
 
 
 
+class TutorFeedback(models.Model):
+    tutor = models.ForeignKey(TutorDetails, on_delete=models.CASCADE, related_name="feedback")
+    user = models.ForeignKey(Accounts, on_delete=models.CASCADE, related_name="tutor_feedback")
+
+    rating = models.PositiveSmallIntegerField(null=True, blank=True)  # 1–5 or null
+    review = models.TextField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "tutor_feedback"
+        unique_together = ('tutor', 'user')
+
+
+
+class CourseFeedback(models.Model):
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="feedback")
+    user = models.ForeignKey(Accounts, on_delete=models.CASCADE, related_name="course_feedback")
+
+    rating = models.PositiveSmallIntegerField(null=True, blank=True)
+    review = models.TextField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "course_feedback"
+        unique_together = ('course', 'user')

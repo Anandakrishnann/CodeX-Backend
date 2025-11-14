@@ -246,3 +246,45 @@ class SheduledMeetingsSerializer(serializers.ModelSerializer):
 
     def get_tutor_name(self, obj):
         return obj.tutor.full_name if obj.tutor else None
+    
+
+
+class TutorFeedbackSerializer(serializers.ModelSerializer):
+    tutor_name = serializers.CharField(source="tutor.full_name", read_only=True)
+    user_name = serializers.CharField(source="user.full_name", read_only=True)
+
+    class Meta:
+        model = TutorFeedback
+        fields = ["id","tutor","tutor_name","user","user_name","rating","review","created_at",]
+        read_only_fields = ["id", "created_at", "tutor_name", "user_name"]
+
+    def validate_rating(self, value):
+        if value is not None and (value < 1 or value > 5):
+            raise serializers.ValidationError("Rating must be between 1 and 5.")
+        return value
+
+    def validate(self, data):
+        if not data.get("rating") and not data.get("review"):
+            raise serializers.ValidationError("Provide rating or review.")
+        return data
+
+
+
+class CourseFeedbackSerializer(serializers.ModelSerializer):
+    course_name = serializers.CharField(source="course.name", read_only=True)
+    user_name = serializers.CharField(source="user.full_name", read_only=True)
+
+    class Meta:
+        model = CourseFeedback
+        fields = ["id","course","course_name","user","user_name","rating","review","created_at",]
+        read_only_fields = ["id", "created_at", "course_name", "user_name"]
+
+    def validate_rating(self, value):
+        if value is not None and (value < 1 or value > 5):
+            raise serializers.ValidationError("Rating must be between 1 and 5.")
+        return value
+
+    def validate(self, data):
+        if not data.get("rating") and not data.get("review"):
+            raise serializers.ValidationError("Provide rating or review.")
+        return data

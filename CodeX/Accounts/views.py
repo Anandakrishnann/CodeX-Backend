@@ -46,6 +46,9 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.utils.timezone import make_aware
 from .tasks import *
+import logging
+logger = logging.getLogger(__name__)
+
 
 User = get_user_model()
 
@@ -2158,3 +2161,79 @@ class RecentMeetingsView(APIView):
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+class TutorFeedbackView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            logger.debug(f"[POST] Raw request data: {request.data}")
+
+            data = request.data.copy()
+            data["user"] = request.user.id
+            tutor_id = data.get("tutor")
+
+            purchased = UserCourseEnrollment.objects.filter(
+                user=request.user,
+                course__created_by_id=tutor_id
+            ).exists()
+
+            if not purchased:
+                return Response(
+                    {"error": "You must purchase at least one course from this tutor to submit feedback."},
+                    status=400
+                )
+
+            if TutorFeedback.objects.filter(tutor_id=tutor_id, user=request.user).exists():
+                return Response({"error": "You already submitted feedback for this tutor."}, status=400)
+
+            serializer = TutorFeedbackSerializer(data=data)
+
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=400)
+
+            serializer.save()
+            return Response(serializer.data, status=201)
+
+        except Exception as e:
+            logger.exception(f"[POST] Unexpected error: {str(e)}")
+            return Response({"error": str(e)}, status=400)
+
+
+
+class CourseFeedbackView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            data = request.data.copy()
+            data["user"] = request.user.id
+            course_id = data.get("course")
+
+            purchased = UserCourseEnrollment.objects.filter(
+                user=request.user,
+                course_id=course_id
+            ).exists()
+
+            if not purchased:
+                return Response(
+                    {"error": "You must purchase this course to submit feedback."},
+                    status=400
+                )
+
+            if CourseFeedback.objects.filter(course_id=course_id, user=request.user).exists():
+                return Response(
+                    {"error": "You already submitted feedback for this course."},
+                    status=400
+                )
+
+            serializer = CourseFeedbackSerializer(data=data)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+
+            return Response(serializer.data, status=201)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=400)
