@@ -46,4 +46,8 @@ urlpatterns = [
     path("tutor/<int:tutor_id>/feedback/", TutorFeedbackView.as_view(), name="tutor-feedback-list-delete"),
     path("course/feedback/", CourseFeedbackView.as_view(), name="course-feedback-create"),
     path("course/<int:course_id>/feedback/", CourseFeedbackView.as_view(), name="course-feedback-list-delete"),
+    path("tutor/report/", TutorReportView.as_view()),               
+    path("tutor/<int:tutor_id>/report/", TutorReportView.as_view()), 
+    path("course/report/", CourseReportView.as_view()),             
+    path("course/<int:course_id>/report/", CourseReportView.as_view()), 
 ]

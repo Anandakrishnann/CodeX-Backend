@@ -231,3 +231,39 @@ class CourseFeedback(models.Model):
     class Meta:
         db_table = "course_feedback"
         unique_together = ('course', 'user')
+
+
+
+class TutorReport(models.Model):
+    tutor = models.ForeignKey(TutorDetails, on_delete=models.CASCADE, related_name="reports")
+    user = models.ForeignKey(Accounts, on_delete=models.CASCADE, related_name="tutor_reports")
+
+    reason = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    is_marked = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "tutor_reports"
+        unique_together = ("tutor", "user")  # prevent duplicate reports
+
+    def __str__(self):
+        return f"Report by {self.user} on {self.tutor}"
+
+
+
+class CourseReport(models.Model):
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="reports")
+    user = models.ForeignKey(Accounts, on_delete=models.CASCADE, related_name="course_reports")
+
+    reason = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    is_marked = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "course_reports"
+        unique_together = ("course", "user")  # prevent duplicate reports
+
+    def __str__(self):
+        return f"Report by {self.user} on {self.course}"

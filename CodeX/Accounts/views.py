@@ -2295,3 +2295,95 @@ class CourseFeedbackView(APIView):
         
         except Exception as e: 
             return Response({"error": str(e)}, status=400)
+
+
+
+class TutorReportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            data = request.data.copy()
+            data["user"] = request.user.id
+            tutor_id = data.get("tutor")
+
+            purchased = UserCourseEnrollment.objects.filter(
+                user=request.user,
+                course__created_by_id=tutor_id
+            ).exists()
+
+            if not purchased:
+                return Response({"error": "You must purchase at least one course from this tutor to send a report."}, status=400)
+
+            if TutorReport.objects.filter(tutor_id=tutor_id, user=request.user).exists():
+                return Response({"error": "You already reported this tutor."}, status=400)
+
+            serializer = TutorReportSerializer(data=data)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+
+            report = serializer.instance
+
+            # Send email using Celery
+            send_report_email.delay(
+                user_email=report.user.email,
+                user_name=report.user.first_name,
+                report_type="tutor",
+                reported_name=report.tutor.full_name
+            )
+
+            return Response(serializer.data, status=201)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=400)
+
+    def get(self, request, tutor_id):
+        reports = TutorReport.objects.filter(tutor_id=tutor_id)
+        serializer = TutorReportSerializer(reports, many=True)
+        return Response(serializer.data, status=200)
+
+
+
+class CourseReportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            data = request.data.copy()
+            data["user"] = request.user.id
+            course_id = data.get("course")
+
+            purchased = UserCourseEnrollment.objects.filter(
+                user=request.user,
+                course_id=course_id
+            ).exists()
+
+            if not purchased:
+                return Response({"error": "You must purchase this course to send a report."}, status=400)
+
+            if CourseReport.objects.filter(course_id=course_id, user=request.user).exists():
+                return Response({"error": "You already reported this course."}, status=400)
+
+            serializer = CourseReportSerializer(data=data)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+
+            report = serializer.instance
+
+            # Send email using Celery
+            send_report_email.delay(
+                user_email=report.user.email,
+                user_name=report.user.first_name,
+                report_type="course",
+                reported_name=report.course.title
+            )
+
+            return Response(serializer.data, status=201)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=400)
+
+    def get(self, request, course_id):
+        reports = CourseReport.objects.filter(course_id=course_id)
+        serializer = CourseReportSerializer(reports, many=True)
+        return Response(serializer.data, status=200)

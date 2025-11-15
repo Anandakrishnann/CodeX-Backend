@@ -20,26 +20,24 @@ urlpatterns = [
     path('category_status/', CategoryStatusView.as_view(), name='category_status'),
     path('create_plan/', CreatePlanView.as_view(), name='create_plan'),
     path('list_plan/', ListPlanView.as_view(), name='list_plan'),
-    path('application_view/<str:userId>/', TutorApplicationsOverView.as_view(), name='application_view'),
+    path('application_view/<str:email>/', TutorApplicationsOverView.as_view(), name='application_view'),
     path('tutor_view/<str:userId>/', TutorOverView.as_view(), name='tutor_view'),
     path('view_course/<str:id>/', CourseOverView.as_view(), name='view_course'),
     path('course_modules/<str:id>/', ListCourseModulesView.as_view(), name='course_modules'),
     path('view_module/<str:id>/', ModuleDetailView.as_view(), name='view_module'),
     path('course_lessons/<str:id>/', ListCourseLessonView.as_view(), name='course_lessons'),
     path('lesson_overview/<str:lessonId>/', LessonOverview.as_view(), name='lesson_overview'),
-
     path('accept_application/<str:applicationId>/', AcceptApplicationView.as_view(), name='accept_application'),
     path('reject_application/<str:applicationId>/', RejectApplicationView.as_view(), name='reject_application'),
-
     path('accept_course_request/<str:courseId>/', AcceptCourseRequestView.as_view(), name='accept_course_request'),
     path('reject_course_request/<str:courseId>/', RejectCourseRequestView.as_view(), name='reject_course_request'),
-
     path('accept_module/<str:id>/', AcceptModuleView.as_view(), name='accept_module'),
     path('reject_module/<str:id>/', RejectModuleView.as_view(), name='reject_module'),
-
     path('accept_lesson/<str:lessonId>/', AcceptLessonView.as_view(), name='accept_lesson'),
     path('reject_lesson/<str:lessonId>/', RejectLessonView.as_view(), name='reject_lesson'),
-
     path('module_status/<str:id>/', ModuleStatusView.as_view(), name='module_status'),
     path('lesson_status/<str:lessonId>/', LessonStatusView.as_view(), name='lesson_status'),
+    path('reports/', ReportsView.as_view(), name='reports'),
+    path('tutor/<str:id>/reports/', TutorReportMarkView.as_view(), name='tutor_reports'),
+    path('course/<str:id>/reports/', CourseReportMarkView.as_view(), name='course_reports'),
 ]   

@@ -24,7 +24,7 @@ import traceback
 from Accounts.models import *
 from tutorpanel.models import *
 from notifications.utils import send_notification
-
+from Accounts.tasks import send_report_marked_email
 
 
 
@@ -192,19 +192,34 @@ class ListUsers(APIView):
 class ListTutors(APIView):
     def get(self, request):
         try:
-            # Get active subscriptions
-            subscribed_tutors = TutorSubscription.objects.filter(is_active=True)
+            # Get all tutors with active subscriptions
+            subscribed_tutors = TutorSubscription.objects.filter(is_active=True).select_related(
+                "tutor", "tutor__account"
+            )
 
-            # Get the associated Accounts objects from each subscription
-            accounts = [sub.tutor.account for sub in subscribed_tutors]
+            tutor_data = []
 
-            tutor_data = [{"id": tutor.id, "email": tutor.email, "first_name": tutor.first_name, "last_name":tutor.last_name, "phone":tutor.phone, "status": bool(tutor.isblocked), "role":tutor.role } for tutor in accounts]
+            for sub in subscribed_tutors:
+                account = sub.tutor.account      
+                tutor_details = sub.tutor        
 
-            return Response({"users": tutor_data}, status=status.HTTP_200_OK)
+                tutor_data.append({
+                    "id": tutor_details.id,
+                    "first_name": account.first_name,
+                    "last_name": account.last_name,
+                    "email": account.email,
+                    "phone": account.phone,
+                    "status": bool(account.isblocked),
+                    "role": account.role,
+                    "picture": tutor_details.profile_picture,
+                    "expertise": tutor_details.expertise,
+                })
+
+            return Response({"users": tutor_data}, status=200)
 
         except Exception as e:
             print(f"❌ Error: {e}")
-            return Response({"error": "Something went wrong"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"error": "Something went wrong"}, status=500)
 
 
 
@@ -327,13 +342,14 @@ class TutorApplicationView(APIView):
 
 class TutorApplicationsOverView(APIView):
 
-    def get(self, request, userId):
+    def get(self, request, email):
         try:
-            user_application = get_object_or_404(TutorApplications, id=int(userId))  # Ensure ID is an int
+            user_application = get_object_or_404(TutorApplications, email=email)  # Ensure ID is an int
             print(f"Found application: {user_application}")
-            print(f"userId: {userId}")
+            print(f"userId: {email}")
 
             data = {
+                "id":user_application.id,
                 "username": user_application.full_name,
                 "email": user_application.email,
                 "date_of_birth": user_application.dob,
@@ -355,7 +371,7 @@ class TutorApplicationsOverView(APIView):
 
         except Exception as e:
             print("❌ ERROR OCCURRED:")
-            return Response({"error": str(e)}, status=500)  # Return actual error
+            return Response({"error": str(e)}, status=500)
 
 
 
@@ -363,16 +379,13 @@ class TutorOverView(APIView):
 
     def get(self, request, userId):
         try:
-            tutor = get_object_or_404(Accounts, email=userId)  # Ensure ID is an int
-            print(f"Found application: {tutor}")
-
-            deatils = get_object_or_404(TutorDetails, account=tutor)
+            deatils = get_object_or_404(TutorDetails, id=userId)
 
             data = {
-                "id":tutor.id,
-                "is_blocked": tutor.isblocked,
+                "id":deatils.account.id,
+                "is_blocked": deatils.account.isblocked,
                 "username": deatils.full_name,
-                "email": tutor.email,
+                "email": deatils.account.email,
                 "date_of_birth": deatils.dob,
                 "education": deatils.education,
                 "expertise": deatils.expertise,
@@ -380,7 +393,7 @@ class TutorOverView(APIView):
                 "experience": deatils.experience,
                 "about":deatils.about,
                 "age":deatils.get_age(),
-                "phone": tutor.phone,
+                "phone": deatils.account.phone,
                 "presentation_video": deatils.verification_video if deatils.verification_video else None,
                 "verification_file": deatils.verification_file if deatils.verification_file else None,
                 "profile_picture": deatils.profile_picture if deatils.profile_picture else None,
@@ -392,8 +405,8 @@ class TutorOverView(APIView):
 
         except Exception as e:
             print("❌ ERROR OCCURRED:")
-            traceback.print_exc()  # Prints full error traceback in logs
-            return Response({"error": str(e)}, status=500)  # Return actual error
+            traceback.print_exc()
+            return Response({"error": str(e)}, status=500)
 
 
 
@@ -453,6 +466,7 @@ class AcceptApplicationView(APIView):
         except Exception as e:
             print(f"Error While Creating Tutor: {e}")
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
 
 
 class RejectApplicationView(APIView):
@@ -1051,3 +1065,143 @@ class LessonOverview(APIView):
             return Response(LessonOverviewSerializer(lesson).data, status=status.HTTP_200_OK)
         except:
             return Response({"error":"Error While Fetching Lesson Details"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+class ReportsView(APIView):
+
+    def get(self, request):
+        try:
+            tutor_reports = TutorReport.objects.all()
+            course_reports = CourseReport.objects.all()
+
+
+            most_reported_tutor = (
+                tutor_reports.values("tutor")
+                .annotate(count=models.Count("id"))
+                .order_by("-count")
+                .first()
+            )
+
+            if most_reported_tutor:
+                tutor_obj = TutorDetails.objects.filter(id=most_reported_tutor["tutor"]).first()
+                most_reported_tutor = {
+                    "id": tutor_obj.id,
+                    "tutor_name": tutor_obj.full_name,
+                    "count": most_reported_tutor["count"]
+                }
+
+
+            most_reported_course = (
+                course_reports.values("course")
+                .annotate(count=models.Count("id"))
+                .order_by("-count")
+                .first()
+            )
+
+            if most_reported_course:
+                course_obj = Course.objects.filter(id=most_reported_course["course"]).first()
+                most_reported_course = {
+                    "id": course_obj.id,
+                    "course_name": course_obj.name,
+                    "count": most_reported_course["count"]
+                }
+
+            response = {
+                "tutor_reports": TutorReportSerializer(tutor_reports, many=True).data,
+                "most_reported_tutor": most_reported_tutor,
+                "course_reports": CourseReportSerializer(course_reports, many=True).data,
+                "most_reported_course": most_reported_course
+            }
+
+            return Response(response, status=200)
+
+        except Exception as e:
+            print(e)
+            return Response({"error": str(e)}, status=400)
+
+
+
+
+class TutorReportMarkView(APIView):
+    def post(self, request, id):
+        try:
+            report = get_object_or_404(TutorReport, id=id)
+            
+            if not report.is_marked:
+                report.is_marked = True
+                report.save()
+                
+                send_report_marked_email.delay(
+                    user_email=report.user.email,
+                    user_name=report.user.first_name,
+                    report_type="tutor",
+                    reported_name=report.tutor.full_name
+                )
+                
+                message = (
+                    f"Your report against tutor '{report.tutor.full_name}' "
+                    "has been reviewed by the admin team. Appropriate action has been taken."
+                )
+                
+                send_notification(report.user, message)
+
+            
+                return Response({"message":"Report Marked Successfully"}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error":str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    
+    def delete(self, request, id):
+        try:
+            report = get_object_or_404(TutorReport, id=id)
+
+            report.delete()
+            return Response(
+                {"message": "Tutor report deleted successfully."},
+                status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class CourseReportMarkView(APIView):
+    def post(self, request, id):
+        try:
+            report = get_object_or_404(CourseReport, id=id)
+            
+            if not report.is_marked:
+                report.is_marked = True
+                report.save()
+                
+                send_report_marked_email.delay(
+                    user_email=report.user.email,
+                    user_name=report.user.first_name,
+                    report_type="course",
+                    reported_name=report.course.title
+                )
+                
+                message = (
+                    f"Your report against course '{report.course.title}' "
+                    "has been reviewed by the admin team. Appropriate action has been taken."
+                )
+                
+                send_notification(report.user, message)
+
+            
+                return Response({"message":"Report Marked Successfully"}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error":str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    
+    def delete(self, request, id):
+        try:
+            report = get_object_or_404(CourseReport, id=id)
+
+            report.delete()
+            return Response(
+                {"message": "Course report deleted successfully."},
+                status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)

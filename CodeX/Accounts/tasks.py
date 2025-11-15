@@ -65,6 +65,7 @@ def send_meeting_confimation_email(meeting_id, type="scheduled", user_id=None):
         )
 
 
+
 @shared_task
 def mark_meeting_completed(booking_id):
     print(f"🚀 mark_meeting_completed STARTED {booking_id} at {now()}")
@@ -78,3 +79,56 @@ def mark_meeting_completed(booking_id):
     except Exception as e:
         print(f"🔥 ERROR in mark_meeting_completed: {e}")
         traceback.print_exc()
+
+
+
+@shared_task
+def send_report_email(user_email, user_name, report_type, reported_name):
+    """
+    Sends an email when user submits a tutor/course report.
+    report_type = "tutor" or "course"
+    reported_name = tutor full_name OR course title
+    """
+
+    subject = "Report Submitted Successfully"
+
+    html_message = render_to_string("report_submitted.html", {
+        "name": user_name,
+        "report_type": report_type,
+        "reported_name": reported_name,
+    })
+
+    send_mail(
+        subject,
+        "",
+        os.getenv("EMAIL_HOST_USER"),
+        [user_email],
+        html_message=html_message,
+        fail_silently=False
+    )
+
+
+@shared_task
+def send_report_marked_email(user_email, user_name, report_type, reported_name):
+    """
+    Sends an email when admin marks a report as reviewed.
+    report_type = 'tutor' or 'course'
+    reported_name = tutor full_name OR course title
+    """
+
+    subject = "Your Report Has Been Reviewed"
+
+    html_message = render_to_string("report_marked.html", {
+        "name": user_name,
+        "report_type": report_type,
+        "reported_name": reported_name,
+    })
+
+    send_mail(
+        subject,
+        "",
+        os.getenv("EMAIL_HOST_USER"),
+        [user_email],
+        html_message=html_message,
+        fail_silently=False
+    )

@@ -85,6 +85,7 @@ class CourseRequestSerializer(serializers.ModelSerializer):
         fields = "__all__"     
 
 
+
 class CourseModuleSerializer(serializers.ModelSerializer):
     class Meta:
         model = Modules
@@ -95,4 +96,25 @@ class CourseModuleSerializer(serializers.ModelSerializer):
 class LessonOverviewSerializer(serializers.ModelSerializer):
     class Meta:
         model = Lessons
-        fields = "__all__"      
+        fields = "__all__"   
+
+
+
+class TutorReportSerializer(serializers.ModelSerializer):
+    tutor_name = serializers.CharField(source="tutor.full_name", read_only=True)
+    user_name = serializers.CharField(source="user.full_name", read_only=True)
+
+    class Meta:
+        model = TutorReport
+        fields = ["id", "tutor", "tutor_name", "user", "user_name", "reason", "is_marked", "created_at"]
+
+
+
+class CourseReportSerializer(serializers.ModelSerializer):
+    course_name = serializers.CharField(source="course.name", read_only=True)
+    user_name = serializers.CharField(source="user.full_name", read_only=True)
+
+    class Meta:
+        model = CourseReport
+        fields = ["id", "course", "course_name", "user", "user_name", "reason", "is_marked", "created_at"]
+   
