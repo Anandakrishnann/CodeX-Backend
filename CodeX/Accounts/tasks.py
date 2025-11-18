@@ -1,11 +1,12 @@
 from celery import shared_task
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
-from datetime import datetime
 from tutorpanel.models import MeetingBooking
 from django.utils.timezone import now
 import traceback
 import os
+
+
 
 @shared_task
 def send_meeting_invite_email(meeting_id, type="scheduled", user_id=None):
@@ -35,6 +36,7 @@ def send_meeting_invite_email(meeting_id, type="scheduled", user_id=None):
             html_message=html_message,
             fail_silently=False
         )
+
 
 
 @shared_task
@@ -106,6 +108,7 @@ def send_report_email(user_email, user_name, report_type, reported_name):
         html_message=html_message,
         fail_silently=False
     )
+
 
 
 @shared_task

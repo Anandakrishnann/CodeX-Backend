@@ -48,6 +48,7 @@ from django.utils.timezone import make_aware
 from .tasks import *
 import logging
 logger = logging.getLogger(__name__)
+import os
 
 
 User = get_user_model()
@@ -56,6 +57,7 @@ stripe.api_key = settings.STRIPE_SECRET_KEY
 endpoint_secret = settings.STRIPE_WEBHOOK_SECRET
 
 User = get_user_model()
+
 
 
 class UserRegisterView(APIView):
@@ -81,6 +83,20 @@ class OTPVerificationView(APIView):
         serializer = OTPVerificationSerializer(data=request.data)
 
         if serializer.is_valid():
+            user_id = serializer.validated_data.get('user_id')
+            user = Accounts.objects.get(id=user_id)
+            subject = "✅ Account Activated Successfully"
+            message = (
+                f"Hello {user.first_name},\n\n"
+                f"Your account at CodeX Learning has been successfully activated.\n\n"
+                f"You can now log in and start learning!\n\n"
+                f"The CodeX Learning Team"
+            )
+            from_email = os.getenv("EMAIL_HOST_USER")
+            recipient_list = [user.email]
+            
+            send_mail(subject, message, from_email, recipient_list)
+            
             return Response(serializer.validated_data, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -92,6 +108,21 @@ class ResendOTPView(APIView):
     def post(self, request):
         serializer = ResendOTPSerializer(data=request.data)
         if serializer.is_valid():
+            
+            user_id = serializer.validated_data.get('user_id')
+            user = Accounts.objects.get(id=user_id)
+            subject = "✅ Account Activated Successfully"
+            message = (
+                f"Hello {user.first_name},\n\n"
+                f"Your account at CodeX Learning has been successfully activated.\n\n"
+                f"You can now log in and start learning!\n\n"
+                f"The CodeX Learning Team"
+            )
+            from_email = os.getenv("EMAIL_HOST_USER")
+            recipient_list = [user.email]
+            
+            send_mail(subject, message, from_email, recipient_list)
+            
             return Response(
                 {"message": "OTP has been resent to your email."},
                 status=status.HTTP_200_OK,
@@ -461,6 +492,19 @@ class ResetPasswordView(APIView):
             new_password = request.data.get("password")
             user.password = make_password(new_password)
             user.save()
+            
+            subject = "✅ Password Updated Successfully"
+            message = (
+                f"Hello {user.first_name},\n\n"
+                f"Your password for CodeX Learning was successfully reset.\n\n"
+                f"You can now log in using your new password.\n\n"
+                f"**Security Alert:** If you did NOT change your password, please contact CodeX Learning support immediately.\n\n"
+                f"The CodeX Learning Team"
+            )
+            from_email = os.getenv("EMAIL_HOST_USER")
+            recipient_list = [user.email]
+            
+            send_mail(subject, message, from_email, recipient_list)
 
             return Response({"message": "Password reset successful"}, status=200)
 

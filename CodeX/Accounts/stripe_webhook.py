@@ -9,7 +9,7 @@ from django.conf import settings
 import stripe # type: ignore
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
-from django.http import HttpResponse, Http404
+from django.http import HttpResponse
 from datetime import timedelta
 
 

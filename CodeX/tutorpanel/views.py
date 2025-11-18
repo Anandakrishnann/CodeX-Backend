@@ -106,6 +106,7 @@ class TutorDashboardView(APIView):
             return Response({"error": str(e)}, status=500)
 
 
+
 class TutorSubscribedCheckView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -965,6 +966,7 @@ class RecentMeetingsView(APIView):
         
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
 
 
 class CourseMonthlyTrendsView(APIView):

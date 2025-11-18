@@ -139,10 +139,22 @@ class ResendOTPSerializer(serializers.Serializer):
         otp_hash = hashlib.sha256(str(otp).encode()).hexdigest()
         expires_at = timezone.now() + timedelta(minutes=2)
         OTP.objects.create(user=user, otp=otp_hash, expires_at=expires_at)
+        
+        subject = "Your OTP for Verification"
+        message = (
+            f"Hello {user.first_name},\n\n"
+            f"Your OTP for account verification is: {otp}\n\n"
+            "This OTP is valid for 2 minutes.\n\n"
+            "If you didn't request this, please ignore this email."
+        )
+        from_email = os.getenv("EMAIL_HOST_USER")
+        recipient_list = [user.email]
+
+        send_mail(subject, message, from_email, recipient_list)
 
         print(f"OTP for {user.email}: {otp}")
 
-        return {"message": "OTP has been resent to your email."}
+        return {"message": "OTP has been resent to your email.", "user_id": user.id}
     
 
 

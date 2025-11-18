@@ -17,6 +17,8 @@ import cloudinary
 import cloudinary.uploader
 import cloudinary.api
 import dj_database_url
+import sys
+
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -280,6 +282,9 @@ CHANNEL_LAYERS = {
 ZEGOCLOUD_APP_ID = os.getenv("ZEGOCLOUD_APP_ID")
 ZEGOCLOUD_SECRET = os.getenv("ZEGOCLOUD_SECRET")
 
+
+
+TESTING = len(sys.argv) > 1 and sys.argv[1] == "test"
 
 
 # Default primary key field type

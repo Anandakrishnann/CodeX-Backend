@@ -12,7 +12,7 @@ from tutorpanel.models import *
 
 
 class AccountsManager(BaseUserManager):
-    def create_user(self, email, first_name, last_name, phone, leetcode_id, password=None, **extra_fields):
+    def create_user(self, email, first_name, last_name, phone, password=None, **extra_fields):
         if not email:
             raise ValueError('The Email field must be set')
 
@@ -23,7 +23,6 @@ class AccountsManager(BaseUserManager):
             first_name=first_name,
             last_name=last_name,
             phone=phone,
-            leetcode_id=leetcode_id,
             **extra_fields
         )
 
