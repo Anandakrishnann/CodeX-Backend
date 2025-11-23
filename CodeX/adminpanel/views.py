@@ -25,6 +25,10 @@ from Accounts.models import *
 from tutorpanel.models import *
 from notifications.utils import send_notification
 from Accounts.tasks import send_report_marked_email
+from django.core.mail import send_mail
+import os
+import logging
+logger = logging.getLogger(__name__)
 
 
 
@@ -174,7 +178,6 @@ class AdminDashboardView(APIView):
 
 
 
-
 class ListUsers(APIView):
     def get(self, request):
         try:
@@ -223,7 +226,7 @@ class ListTutors(APIView):
 
 
 
-class Status(APIView):
+class UserStatus(APIView):
 
     def post(self, request):
         try:
@@ -237,8 +240,38 @@ class Status(APIView):
             user.isblocked = not user.isblocked
             user.save()
             if user.isblocked:
+                subject = "⚠️ Account Access Restricted — CodeX Learning"
+
+                message = (
+                    f"Hello {user.first_name},\n\n"
+                    f"We regret to inform you that your access to CodeX Learning has been restricted.\n\n"
+                    f"Our team has reviewed multiple reports and found activities that violate our platform guidelines.\n\n"
+                    f"As a result, your access to the platform has been temporarily blocked and you will not be able to "
+                    f"log in or use CodeX Learning until the review is completed.\n\n"
+                    f"If you believe this action was taken in error or you would like to appeal the decision, "
+                    f"please reach out to our support team at codexlearninginfo@gmail.com.\n\n"
+                    f"Thank you for your understanding.\n\n"
+                    f"— CodeX Learning Team"
+                )
+
+                send_mail(subject, message, os.getenv("EMAIL_HOST_USER"), [user.email])
+
                 send_notification(user, "Your account was blocked by admin. Please contact support.")
             else:
+                
+                subject = "✅ Account Access Restored — CodeX Learning"
+
+                message = (
+                    f"Hello {user.first_name},\n\n"
+                    f"We are happy to inform you that your access to CodeX Learning has been restored.\n\n"
+                    f"Our team has reviewed your account and your access to all features of the platform "
+                    f"is now fully reactivated.\n\n"
+                    f"You can log in and continue using the application as usual.\n\n"
+                    f"If you have any questions or need assistance, feel free to contact us at codexlearninginfo@gmail.com.\n\n"
+                    f"Welcome back!\n\n"
+                    f"— CodeX Learning Team"
+                )
+
                 send_notification(user, "Your account was unblocked by admin. You can continue using the app.")
 
             return Response({"message": "Status updated successfully", "status": user.isblocked}, status=status.HTTP_200_OK)
@@ -252,21 +285,62 @@ class TutorStatus(APIView):
     def post(self, request):
         try:
             user_id = request.data.get('id')
-            print(user_id)
+            print("user id", user_id)
 
             if not user_id:
                 print("no userss")
                 return Response({"error": "User ID is required"}, status=status.HTTP_400_BAD_REQUEST)
             
             user = get_object_or_404(Accounts, id=user_id)
+            
+            tutor = TutorDetails.objects.get(account=user)
 
             user.isblocked = not user.isblocked
             user.save()
 
+
             if user.isblocked:
+                
+                courses = Course.objects.filter(created_by=tutor, is_draft=False, is_active=True, status="accepted")
+            
+                for course in courses:
+                    if course.is_draft == False:
+                        course.is_draft = True
+                        course.save()
+                
                 send_notification(user, "Your account was blocked by admin. Please contact support.")
+                
+                subject = "⚠️ Tutor Panel Access Restricted — Account Blocked"
+
+                message = (
+                    f"Hello {user.first_name},\n\n"
+                    f"Your tutor panel access on CodeX Learning has been blocked due to multiple user reports.\n\n"
+                    f"As part of this action, your active courses have been moved to draft so new learners cannot enroll. "
+                    f"Existing enrolled users will still have access.\n\n"
+                    f"If you believe this was a mistake or would like to appeal, please contact us at codexlearninginfo@gmail.com.\n\n"
+                    f"— CodeX Learning Team"
+                )
+
+                send_mail(subject, message, os.getenv("EMAIL_HOST_USER"), [user.email])
+                
             else:
-                send_notification(user, "Your account was unblocked by admin. You can continue using the app.")
+                
+                send_notification(user, "Your account was unblocked by admin. ")
+                
+                
+                subject = "✅ Tutor Panel Access Restored — Welcome Back!"
+
+                message = (
+                    f"Hello {user.first_name},\n\n"
+                    f"After a careful review of the reports associated with your account, "
+                    f"we have restored your tutor panel access on CodeX Learning.\n\n"
+                    f"Please log in to your dashboard and reactivate any courses that were moved to draft during the block.\n\n"
+                    f"If you need support, feel free to contact us at codexlearninginfo@gmail.com.\n\n"
+                    f"— CodeX Learning Team"
+                )
+
+                send_mail(subject, message, os.getenv("EMAIL_HOST_USER"), [user.email])
+
             
             return Response({"message": "Status updated successfully", "status": user.isblocked}, status=status.HTTP_200_OK)
         except:
@@ -279,22 +353,10 @@ class TutorApplicationView(APIView):
 
     def post(self, request):
         data = {k: v for k, v in request.data.items()}
-        print("\n🟩 Incoming Tutor Application Request")
-        print("Incoming data:", data)
-        print("Incoming files:", request.FILES)
 
-        # 🔍 Detailed debug for each file
-        for key, file in request.FILES.items():
-            print(f"➡️ File field: {key}")
-            print(f"   Name: {file.name}")
-            print(f"   Content type: {file.content_type}")
-            print(f"   Size: {file.size / (1024 * 1024):.2f} MB")
-
-        # Upload files
         try:
             if request.FILES.get('profile_picture'):
                 profile_file = request.FILES['profile_picture']
-                print(f"📸 Uploading profile picture ({profile_file.name}, {profile_file.size / (1024 * 1024):.2f} MB)")
                 upload_result = cloudinary.uploader.upload(
                     profile_file,
                     folder="profile_picture",
@@ -304,7 +366,6 @@ class TutorApplicationView(APIView):
 
             if request.FILES.get('verification_file'):
                 doc_file = request.FILES['verification_file']
-                print(f"📄 Uploading verification file ({doc_file.name}, {doc_file.size / (1024 * 1024):.2f} MB)")
                 upload_result = cloudinary.uploader.upload(
                     doc_file,
                     folder="verification_docs",
@@ -314,39 +375,50 @@ class TutorApplicationView(APIView):
 
             if request.FILES.get('verification_video'):
                 video_file = request.FILES['verification_video']
-                print(f"🎥 Uploading verification video ({video_file.name}, {video_file.size / (1024 * 1024):.2f} MB)")
-                print("📊 Cloudinary upload starting...")
                 upload_result = cloudinary.uploader.upload(
                     video_file,
                     folder="verification_videos",
                     resource_type="video"
                 )
-                print("✅ Cloudinary upload success:", upload_result.get('secure_url'))
                 data['verification_video'] = upload_result.get('secure_url')
 
         except Exception as e:
-            print("❌ Cloudinary upload failed:", e)
             return Response({"error": "File upload failed", "details": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Continue with serializer
         serializer = TutorApplicationSerializer(data=data, context={"request": request})
         if serializer.is_valid():
             serializer.save(account=request.user)
-            print("✅ Tutor application saved successfully.")
+            
+            user = request.user
+            subject = "📨 Tutor Application Submitted Successfully"
+            message = (
+                f"Hello {user.first_name},\n\n"
+                f"Your tutor application has been submitted successfully.\n"
+                f"Our verification team will review your details and documents.\n\n"
+                f"Please note that this process typically takes around *2–3 business days*.\n"
+                f"We will notify you once your application has been evaluated.\n\n"
+                f"Thank you for choosing to become a Tutor at CodeX Learning!\n\n"
+                f"— CodeX Learning Team"
+            )
+
+            from_email = os.getenv("EMAIL_HOST_USER")
+            recipient_list = [user.email]
+            
+            send_mail(subject, message, from_email, recipient_list)
+            
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         else:
-            print("❌ Serializer errors:", serializer.errors)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 
 class TutorApplicationsOverView(APIView):
 
-    def get(self, request, email):
+    def get(self, request, id):
         try:
-            user_application = get_object_or_404(TutorApplications, email=email)  # Ensure ID is an int
+            user_application = get_object_or_404(TutorApplications, id=id)
             print(f"Found application: {user_application}")
-            print(f"userId: {email}")
+            print(f"userId: {id}")
 
             data = {
                 "id":user_application.id,
@@ -399,7 +471,6 @@ class TutorOverView(APIView):
                 "profile_picture": deatils.profile_picture if deatils.profile_picture else None,
                 "status":deatils.status
             }
-            print(f"data: {data}")
 
             return Response(data, status=status.HTTP_200_OK)
 
@@ -453,13 +524,32 @@ class AcceptApplicationView(APIView):
                 tutor.save()
 
             send_notification(user, "Your Application accepted by admin. Complete subscription to become a tutor.")
-            print(f"Tutor Created or Updated: {tutor}")
+            
+            subject = "🎉 Your Tutor Application Has Been Accepted"
+            message = (
+                f"Hello {user.first_name},\n\n"
+                f"Great news! Your tutor application has been *accepted*.\n"
+                f"Our team has reviewed your details and verified your documents successfully.\n\n"
+                f"You are now officially a Tutor at CodeX Learning.\n"
+                f"To start using the platform and access all tutor features, "
+                f"please complete your subscription.\n\n"
+                f"We are excited to have you on board!\n\n"
+                f"— CodeX Learning Team"
+            )
+
+
+            from_email = os.getenv("EMAIL_HOST_USER")
+            recipient_list = [user.email]
+            
+            send_mail(subject, message, from_email, recipient_list)
 
             # Update user role & application status
             user.role = "tutor"
             user.save()
             application.status = "verified"
             application.save()
+            
+            
 
             return Response({"success": "Tutor Data added/updated successfully"}, status=status.HTTP_201_CREATED)
 
@@ -470,29 +560,57 @@ class AcceptApplicationView(APIView):
 
 
 class RejectApplicationView(APIView):
-
     def post(self, request, applicationId):
         try:
-            print(applicationId)
             application = get_object_or_404(TutorApplications, id=applicationId)
-            print(application)
+            reason = request.data.get("reason")
 
-            if not application:
-                return Response({"error":"Application not found"}, status=status.HTTP_404_NOT_FOUND)
-            
+            if not reason:
+                return Response({"error": "Rejection reason is required"}, status=400)
+
             application.status = "rejected"
             application.save()
 
-            user = get_object_or_404(Accounts, email=application.email)
-            print(f"user object: {user}")
+            TutorRejectionHistory.objects.create(application=application, admin=request.user, reason=reason)
+
+            user = application.account
+
+            send_notification(user, "Your application was rejected. Check your email for details.")
+
+            subject = "⚠️ Tutor Application Status Update — Application Rejected"
+
+            message = (
+                f"Hello {user.first_name},\n\n"
+                f"Your tutor application has been rejected.\n"
+                f"Reason: {reason}\n\n"
+                f"Before resubmitting, please ensure you upload all relevant and clear verification documents.\n\n"
+                f"You can resubmit your application after making the necessary improvements.\n\n"
+                f"— CodeX Learning Team"
+            )
+
+            send_mail(subject, message, os.getenv("EMAIL_HOST_USER"), [user.email])
+
+            return Response({"success": "Application Rejected"}, status=201)
+
+        except Exception as e:
+            return Response({"error": "Something went wrong", "details": str(e)}, status=400)
+
+
+
+class RejectedReasonView(APIView):
+    def get(self, request, id):
+        try:
             
-            send_notification(user, "Your Application rejected by admin contact help serivce.")
+            application = TutorApplications.objects.get(id=id)
+            
+            data = TutorRejectionHistory.objects.get(application=application)
+            
+            serializer = TutorRejectedSerializer(data)
+            
+            return Response(serializer.data, status=status.HTTP_200_OK)
 
-            return Response({"success":"Application Rejected"}, status=status.HTTP_201_CREATED)
-        
-        except:
-
-            return Response({"error":"Something went wrong"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 
@@ -593,6 +711,7 @@ class CategoryStatusView(APIView):
             return Response({"Error": "Error While Chaning the status"}, status=status.HTTP_400_BAD_REQUEST)
 
 
+
 def create_stripe_product_and_price(plan):
     product = stripe.Product.create(name=plan.name)
 
@@ -606,6 +725,7 @@ def create_stripe_product_and_price(plan):
     )
 
     return price.id
+
 
 
 class CreatePlanView(APIView):
@@ -667,24 +787,65 @@ class CourseRequestsView(APIView):
 
 
 class CourseStatusView(APIView):
-
-    def post(self, requests, id):
+    
+    def post(self, request, id):
         try:
             course = get_object_or_404(Course, id=id)
 
-            if not course:
-                return Response({"Error":"Course Does Not Exists"}, status=status.HTTP_400_BAD_REQUEST)
+            purchased_course = UserCourseEnrollment.objects.filter(
+                course=course,
+                status__in=["pending", "inprogress"]
+            )
             
+            if purchased_course.exists():
+                return Response(
+                    {
+                        "message": (
+                            "This course has already been purchased by user's. "
+                            "You cannot change its status. "
+                            "If needed, you may switch the course to draft mode."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
             course.is_active = not course.is_active
             course.save()
+
+            tutor_user = course.created_by.account
             
-            tutor_user = course.created_by.account  
-            
-            send_notification(tutor_user, "Your Course Status Changed by admin. Please contact support.")
-            
-            return Response({"message": "Status updated successfully", "status": course.is_active}, status=status.HTTP_200_OK)
-        except:
-            return Response({"Error": "Error While Updating the status"}, status=status.HTTP_400_BAD_REQUEST)
+            send_notification(
+                tutor_user,
+                "Your course status was changed by admin. Please contact support if needed."
+            )
+
+            return Response(
+                {"message": "Status updated successfully", "status": course.is_active},
+                status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            print("❌ Error while updating course status:", str(e))
+            return Response(
+                {"error": "Error while updating the status", "details": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+
+
+class SetCourseDraftView(APIView):
+    
+    def post(self, request, id):
+        try:
+            course = get_object_or_404(Course, id=id)
+            if course:
+                course.is_draft = not course.is_draft
+                course.save()
+                return Response({"message":"Course Set To Draft Successfully"}, status=status.HTTP_200_OK)
+            else:
+                return Response({"error":"Course Doest Not Exists"}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({"error":str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 
@@ -709,6 +870,7 @@ class ListCoursesView(APIView):
                     "price": reqeusts.price,
                     "created_at": reqeusts.created_at,
                     "is_active": reqeusts.is_active,
+                    "is_draft": reqeusts.is_draft,
                     "level":reqeusts.level,
                     "status":reqeusts.status,
                 })
@@ -742,12 +904,9 @@ class CoureseStatusView(APIView):
                 
             return Response({"message": "Status updated successfully", "status": course.is_active}, status=status.HTTP_200_OK)
         except:
-            return Response({"Error": "Error While Updating the status"}, status=status.HTTP_400_BAD_REQUEST)
-        
+            return Response({"Error": "Error While Updating the status"}, status=status.HTTP_400_BAD_REQUEST)      
 
-import logging
-# Configure logger
-logger = logging.getLogger(__name__)
+
 
 class AcceptCourseRequestView(APIView):
     def post(self, request, courseId):
@@ -791,7 +950,11 @@ class RejectCourseRequestView(APIView):
     def post(self, request, courseId):
         try:
             course = get_object_or_404(Course, id=courseId)
+            reason = request.data.get("reason")
 
+            if not reason:
+                return Response({"error": "Rejection reason is required"}, status=400)
+            
             tutor = course.created_by
 
             user = get_object_or_404(Accounts, id=tutor.account.id)
@@ -799,11 +962,27 @@ class RejectCourseRequestView(APIView):
             if not course:
                 return Response({"error":"Course Not Found"}, status=status.HTTP_404_NOT_FOUND)
             
+            CourseRejectionHistory.objects.create(course=course, admin=request.user, reason=reason)
+            
             course.status = "rejected"
             course.is_active = False
             course.save()
             
-            send_notification(user, f"Your {course.name} course was rejected by admin. Please contact support.")
+            send_notification(user, "Your course was rejected. Check your email for details.")
+
+            subject = "⚠️ Course Status Update — Course Rejected"
+
+            message = (
+                f"Hello {user.first_name},\n\n"
+                f"Your course \"{course.title}\" has been reviewed and unfortunately it has been rejected.\n\n"
+                f"Reason: {reason}\n\n"
+                f"Before resubmitting, please make sure your course meets the platform guidelines, "
+                f"includes clear structure, proper content, and all required details.\n\n"
+                f"You can update the course based on the above reason and resubmit it for review.\n\n"
+                f"— CodeX Learning Team"
+            )
+
+            send_mail(subject, message, os.getenv("EMAIL_HOST_USER"), [user.email])
             
             return Response({"message":"course rejected successfully"}, status=status.HTTP_200_OK)
         except:
@@ -839,26 +1018,49 @@ class AcceptModuleView(APIView):
         
 
 
-
 class RejectModuleView(APIView):
 
     def post(self, request, id):
         try:
             module = get_object_or_404(Modules, id=id)
+            reason = request.data.get("reason")
 
             if not module:
                 return Response({"error":"Module Not Found"}, status=status.HTTP_404_NOT_FOUND)
+
+            if not reason:
+                return Response({"error": "Rejection reason is required"}, status=400)
             
             module.status = "rejected"
             module.is_active = False
             module.save()
+            
+            ModuleRejectionHistory.objects.create(module=module, admin=request.user, reason=reason)
 
-            # Notify tutor
             try:
                 tutor = module.course.created_by
                 tutor_user = tutor.account if hasattr(tutor, 'account') else None
                 if tutor_user:
-                    send_notification(tutor_user, f"Your module '{module.title}' was rejected by admin.")
+                    send_notification(
+                    tutor_user,
+                    "One of your course modules was rejected. Check your email for details."
+                )
+
+                subject = "⚠️ Module Status Update — Module Rejected"
+
+                message = (
+                    f"Hello {tutor_user.first_name},\n\n"
+                    f"Your module \"{module.title}\""
+                    f"{f' in the course \"{module.course.title}\"' if module.course else ''} "
+                    f"has been reviewed and unfortunately it has been rejected.\n\n"
+                    f"Reason: {reason}\n\n"
+                    f"Before resubmitting, please make sure this module meets the platform guidelines, "
+                    f"has a clear structure, proper explanations, and all required content.\n\n"
+                    f"You can update the module based on the above reason and resubmit it for review.\n\n"
+                    f"— CodeX Learning Team"
+                )
+
+                send_mail(subject, message, os.getenv("EMAIL_HOST_USER"), [tutor_user.email])
             except Exception:
                 pass
 
@@ -1004,18 +1206,41 @@ class RejectLessonView(APIView):
     def post(self, request, lessonId):
         try:
             lesson = get_object_or_404(Lessons, id=lessonId)
+            reason = request.data.get("reason")
+            
             if not lesson:
                 return Response({"error":"Lesson Not Found"}, status=status.HTTP_404_NOT_FOUND)
+            
+            if not reason:
+                return Response({"error": "Rejection reason is required"}, status=400)
+            
             lesson.status = "rejected"
             lesson.is_active = False
             lesson.save()
+            
+            LessonRejectionHistory.objects.create(lesson=lesson, admin=request.user, reason=reason)
 
-            # Notify tutor
             try:
                 tutor = lesson.module.course.created_by
                 tutor_user = tutor.account if hasattr(tutor, 'account') else None
                 if tutor_user:
-                    send_notification(tutor_user, f"Your lesson '{lesson.title}' was rejected by admin.")
+                    send_notification(tutor_user, "One of your lessons was rejected. Check your email for details.")
+
+                    subject = "⚠️ Lesson Status Update — Lesson Rejected"
+
+                    message = (
+                        f"Hello {tutor_user.first_name},\n\n"
+                        f"Your lesson \"{lesson.title}\" under the module \"{lesson.module.title}\" "
+                        f"has been reviewed and unfortunately it has been rejected.\n\n"
+                        f"Reason: {reason}\n\n"
+                        f"Before resubmitting, please ensure this lesson meets the platform guidelines, "
+                        f"provides clear explanations, proper structure, and all required content.\n\n"
+                        f"You can update the lesson based on the above reason and resubmit it for review.\n\n"
+                        f"— CodeX Learning Team"
+                    )
+
+                    send_mail(subject, message, os.getenv("EMAIL_HOST_USER"), [tutor_user.email])
+
             except Exception:
                 pass
 
@@ -1122,7 +1347,6 @@ class ReportsView(APIView):
 
 
 
-
 class TutorReportMarkView(APIView):
     def post(self, request, id):
         try:
@@ -1163,6 +1387,7 @@ class TutorReportMarkView(APIView):
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
 
 
 class CourseReportMarkView(APIView):

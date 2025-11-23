@@ -130,6 +130,25 @@ class TutorSubscribedCheckView(APIView):
         except Exception as e:
             print(f"Error in TutorSubscribedCheckView: {e}")
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        
+        
+        
+class TutorApplicationCheckView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            user = request.user
+
+            has_pending = TutorApplications.objects.filter(
+                account=user,
+                status="pending"
+            ).exists()
+
+            return Response({"application": has_pending}, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 
@@ -192,6 +211,9 @@ class EditTutorView(APIView):
 
 
 class UploadTutorProfilePictureView(APIView):
+    
+    permission_classes = [IsSubscribed]
+    
     def post(self, request):
         try:
             user = request.user
@@ -224,7 +246,8 @@ class UploadTutorProfilePictureView(APIView):
 
 
 class CreateCourseView(APIView):
-    permission_classes = [IsSubscribed]  # Use AllowAny for testing if needed
+    
+    permission_classes = [IsSubscribed]
 
     def post(self, request):
         try:
@@ -270,6 +293,7 @@ def get_course_levels(request):
 
 
 class ListCourseView(APIView):
+    
     permission_classes = [IsSubscribed]
 
     def get(self, request):
@@ -301,6 +325,7 @@ class ListCourseView(APIView):
                     "price": course.price,
                     "created_at": course.created_at,
                     "is_active": course.is_active,
+                    "is_draft": course.is_draft,
                     "status": course.status,
                 })
 
@@ -313,6 +338,7 @@ class ListCourseView(APIView):
 
 
 class EditCourseView(APIView):
+    
     permission_classes = [IsSubscribed]
 
     def put(self, request, id):
@@ -345,6 +371,7 @@ class EditCourseView(APIView):
 
 
 class CourseStatusView(APIView):
+    
     permission_classes = [IsSubscribed]
 
     def post(self, request, id):
@@ -355,6 +382,23 @@ class CourseStatusView(APIView):
             if not course:
                 return Response({"Error":"Course Does Not Exists"}, status=status.HTTP_400_BAD_REQUEST)
             
+            purchased_course = UserCourseEnrollment.objects.filter(
+                course=course,
+                status__in=["pending", "inprogress"]
+            )
+            
+            if purchased_course.exists():
+                return Response(
+                    {
+                        "message": (
+                            "This course has already been purchased by user's. "
+                            "You cannot change its status. "
+                            "If needed, you may switch the course to draft mode."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
             course.is_active = not course.is_active
             course.save()
             return Response({"message": "Status updated successfully", "status": course.is_active}, status=status.HTTP_200_OK)
@@ -364,6 +408,7 @@ class CourseStatusView(APIView):
 
 
 class CourseOverView(APIView):
+    
     permission_classes = [IsSubscribed]
 
     def get(self, request, id):
@@ -382,6 +427,7 @@ class CourseOverView(APIView):
 
 
 class ListCourseModulesView(APIView):
+    
     permission_classes = [IsSubscribed]
     
     def get(self, request, id):
@@ -406,6 +452,7 @@ class ListCourseModulesView(APIView):
 
 
 class CreateModuleView(APIView):
+    
     permission_classes = [IsSubscribed]
 
     def post(self, request):
@@ -597,7 +644,6 @@ class CreateLessonView(APIView):
 
 
 
-
 class EditLessonView(APIView):
     permission_classes = [IsSubscribed]
     
@@ -606,7 +652,7 @@ class EditLessonView(APIView):
             # Verify tutor role
             tutor = request.user
             if tutor.role != 'tutor':
-                return Response({"detail": "Unauthorized: Not a tutor"}, status=status.HTTP_403_FORBIDDEN)
+                return Response({"detail": "Unauthorized: Not a tutor"}, status=status.HTTP_400_BAD_REQUEST)
 
             # Get lesson
             lesson = get_object_or_404(Lessons, pk=pk, created_by__account=tutor)
@@ -699,11 +745,111 @@ class SetCourseDraftView(APIView):
                 return Response({"error":"Course Doest Not Exists"}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response({"error":str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        
+   
+   
+   
+class CourseRejectionHistoryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            user = request.user
+
+            courses = Course.objects.filter(created_by__account=user)
+
+            rejected_courses = []
+
+            for course in courses:
+                logs = CourseRejectionHistory.objects.filter(course=course).order_by("-created_at")
+
+                if logs.exists():
+                    rejected_courses.append({
+                        "course_id": course.id,
+                        "course_title": course.title,
+                        "rejections": [
+                            {
+                                "id": log.id,
+                                "reason": log.reason,
+                                "created_at": log.created_at,
+                                "admin": log.admin.full_name() if log.admin else None,
+                            }
+                            for log in logs
+                        ]
+                    })
+
+            return Response({"rejected_courses": rejected_courses}, status=200)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=400)
+
+
+
+class ModuleRejectionHistoryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, course_id):
+        try:
+            modules = Modules.objects.filter(course_id=course_id)
+
+            rejected_modules = []
+
+            for module in modules:
+                if ModuleRejectionHistory.objects.filter(module=module).exists():
+                    rejected_modules.append({
+                        "module_id": module.id,
+                        "module_title": module.title,
+                        "rejections": [
+                            {
+                                "id": r.id,
+                                "reason": r.reason,
+                                "created_at": r.created_at,
+                                "admin": r.admin.full_name() if r.admin else None,
+                            }
+                            for r in ModuleRejectionHistory.objects.filter(module=module)
+                        ],
+                    })
+
+            return Response({"rejected_modules": rejected_modules}, status=200)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=400)
+
+
+
+class LessonRejectionHistoryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, module_id):
+        try:
+            lessons = Lessons.objects.filter(module_id=module_id)
+
+            rejected_lessons = []
+
+            for lesson in lessons:
+                if LessonRejectionHistory.objects.filter(lesson=lesson).exists():
+                    rejected_lessons.append({
+                        "lesson_id": lesson.id,
+                        "lesson_title": lesson.title,
+                        "rejections": [
+                            {
+                                "id": r.id,
+                                "reason": r.reason,
+                                "created_at": r.created_at,
+                                "admin": r.admin.full_name() if r.admin else None,
+                            }
+                            for r in LessonRejectionHistory.objects.filter(lesson=lesson)
+                        ],
+                    })
+
+            return Response({"rejected_lessons": rejected_lessons}, status=200)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=400)
+
 
 
 class SheduleMeetingView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsSubscribed]
     
     def post(self, request):
         try:
@@ -783,7 +929,7 @@ class SheduleMeetingView(APIView):
 
 
 class EditMeetingView(APIView):
-    permission_classes = [IsAuthenticated, IsSubscribed]
+    permission_classes = [IsSubscribed]
 
     def post(self, request):
         try:
@@ -865,9 +1011,8 @@ class EditMeetingView(APIView):
 
 
 
-
 class DeleteMeetingView(APIView):
-    permission_classes = [IsAuthenticated, IsSubscribed]
+    permission_classes = [IsSubscribed]
 
     def post(self, request):
         try:
@@ -925,9 +1070,8 @@ class DeleteMeetingView(APIView):
             
             
 
-
 class SheduledMeetings(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsSubscribed]
     
     def get(self, request):
         try:
@@ -949,7 +1093,7 @@ class SheduledMeetings(APIView):
 
 
 class RecentMeetingsView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsSubscribed]
     
     def get(self, request):
         try:

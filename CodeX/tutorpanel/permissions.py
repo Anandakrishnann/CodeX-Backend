@@ -3,15 +3,19 @@ from Accounts.models import TutorSubscription
 
 class IsSubscribed(BasePermission):
     """
-    Allows access only to users with an active subscription.
+    Allows access only to unblocked tutors with an active subscription.
     """
 
     def has_permission(self, request, view):
         user = request.user
+
         if not user.is_authenticated:
             return False
+
+        if user.role != "tutor":
+            return False
         
-        if not user.role == "tutor":
+        if user.isblocked:
             return False
 
         try:

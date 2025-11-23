@@ -46,6 +46,7 @@ class Modules(models.Model):
     is_active = models.BooleanField(default=False)
 
 
+
 class Lessons(models.Model):
     created_by = models.ForeignKey("Accounts.TutorDetails", on_delete=models.SET_NULL, null=True)
     module = models.ForeignKey(Modules, on_delete=models.SET_NULL, null=True)

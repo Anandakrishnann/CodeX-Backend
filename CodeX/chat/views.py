@@ -42,7 +42,7 @@ class GetOrCreateChatRoomView(APIView):
         ).exists()
 
         if not has_purchased:
-            return Response({"error": "Course not purchased."}, status=403)
+            return Response({"error": "Course not purchased."}, status=400)
 
 
         chat_rooms = ChatRoom.objects.annotate(num_participants=Count('participants')).filter(

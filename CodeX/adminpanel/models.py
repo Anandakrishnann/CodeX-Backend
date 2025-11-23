@@ -8,7 +8,7 @@ class TutorApplications(models.Model):
     account = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True)
     id = models.BigAutoField(primary_key=True)
     full_name = models.CharField(max_length=255)
-    email = models.EmailField(unique=True)
+    email = models.EmailField()
     phone = models.CharField(max_length=15)
     dob = models.DateField(null=True, blank=True)
     education = models.CharField(max_length=255, null=True, blank=True)
@@ -17,9 +17,8 @@ class TutorApplications(models.Model):
     experience = models.CharField(max_length=255, null=True, blank=True)
     about = models.TextField(null=True, blank=True)
 
-    # Store both files in Cloudinary
     profile_picture = models.URLField(blank=True, null=True, max_length=500)
-    verification_file = models.URLField(blank=True, null=True, max_length=500)  # Store Cloudinary URL
+    verification_file = models.URLField(blank=True, null=True, max_length=500)
     verification_video = models.URLField(blank=True, null=True, max_length=500)  
 
     created_at = models.DateTimeField(auto_now_add=True) 
@@ -34,7 +33,55 @@ class TutorApplications(models.Model):
         if self.dob:
             today = date.today()
             return today.year - self.dob.year - ((today.month, today.day) < (self.dob.month, self.dob.day))
-        return None  # Return None if DOB is not provided
+        return None  
+
+
+
+class TutorRejectionHistory(models.Model):
+    application = models.ForeignKey(TutorApplications, on_delete=models.CASCADE, related_name="rejection_logs")
+    admin = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True)
+    reason = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Rejection for {self.application.full_name} at {self.created_at}"
+    
+    
+
+class CourseRejectionHistory(models.Model):
+    course = models.ForeignKey("tutorpanel.Course", on_delete=models.CASCADE, related_name="rejection_logs")
+    admin = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True)
+    reason = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        from tutorpanel.models import Course  
+        return f"Rejection for {self.course.title} at {self.created_at}"
+    
+    
+    
+class ModuleRejectionHistory(models.Model):
+    module = models.ForeignKey("tutorpanel.Modules", on_delete=models.CASCADE, related_name="rejection_logs")
+    admin = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True)
+    reason = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        from tutorpanel.models import Modules  
+        return f"Rejection for {self.module.title} at {self.created_at}"
+    
+    
+    
+class LessonRejectionHistory(models.Model):
+    lesson = models.ForeignKey("tutorpanel.Lessons", on_delete=models.CASCADE, related_name="rejection_logs")
+    admin = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True)
+    reason = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        from tutorpanel.models import Lessons  
+        return f"Rejection for {self.lesson.title} at {self.created_at}"
+
 
 
 class Plan(models.Model):
@@ -51,6 +98,7 @@ class Plan(models.Model):
 
     def __str__(self):
         return f"{self.name} - {self.plan_type}"
+
 
 
 class CourseCategory(models.Model):

@@ -3,16 +3,19 @@ from .models import TutorApplications
 from Accounts.models import *
 from tutorpanel.models import *
 
+
+
 class TutorApplicationSerializer(serializers.ModelSerializer):
     class Meta:
         model = TutorApplications
         fields = '__all__'
-        
-    def validate_email(self, value):
-        if TutorApplications.objects.filter(email=value).exists():
-            raise serializers.ValidationError("Email already exists.")
-        return value
 
+
+
+class TutorRejectedSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TutorRejectionHistory
+        fields = '__all__'
 
 
 

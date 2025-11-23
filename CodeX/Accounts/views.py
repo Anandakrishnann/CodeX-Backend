@@ -45,6 +45,7 @@ from rest_framework.decorators import api_view, permission_classes, authenticati
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.utils.timezone import make_aware
+from .permissions import IsAuthenticatedUser
 from .tasks import *
 import logging
 logger = logging.getLogger(__name__)
@@ -514,7 +515,7 @@ class ResetPasswordView(APIView):
 
 
 class UserDashboardView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
 
     def get(self, request):
         try:
@@ -619,6 +620,8 @@ class UserDashboardView(APIView):
 
 
 class UserProfileView(APIView):
+    
+    permission_classes = [IsAuthenticatedUser]
 
     def get(self, request):
         try:
@@ -642,7 +645,7 @@ class UserProfileView(APIView):
 
 class EditUserView(APIView):
     
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
     
     def put(self, request):
         user = request.user
@@ -666,6 +669,7 @@ class EditUserView(APIView):
 
 
 class UploadUserProfilePictureView(APIView):
+    permission_classes = [IsAuthenticatedUser]
     def post(self, request):
         try:
             user = request.user  # Already authenticated user
@@ -691,75 +695,68 @@ class UploadUserProfilePictureView(APIView):
 
 
 class TutorHomeView(APIView):
-    
-    permission_classes = [IsAuthenticated]
-    
+    permission_classes = [IsAuthenticatedUser]
+
     def get(self, request):
         try:
+            user = request.user
+
+            # Defaults
             subscribed = False
             plan_details = None
-            categories = None
-            
-            user = request.user
-            
+            categories = CourseCategorySerializer(
+                CourseCategory.objects.filter(is_active=True), 
+                many=True
+            ).data
+
+            # Check TutorDetails
             try:
                 tutor_details = TutorDetails.objects.get(account=user)
-            except ObjectDoesNotExist:
-                print("❌ TutorDetails not found for user.")
+            except TutorDetails.DoesNotExist:
                 tutor_details = None
 
+            # If tutor exists, load subscription details
             if tutor_details:
                 try:
                     subscription = TutorSubscription.objects.get(tutor=tutor_details)
                     subscribed = subscription.is_active
                     plan = subscription.plan
-                    categories_data = CourseCategory.objects.filter(is_active=True)
-                    categories = CourseCategorySerializer(categories_data, many=True).data
+
                     if plan:
                         plan_details = {
-                            "name":plan.name,
-                            "plan_type":plan.plan_type,
-                            "plan_category":plan.plan_category,
-                            "price":plan.price,
-                            "status":tutor_details.status,
-                            "is_active":plan.is_active,
-                            "expires_on":subscription.expires_on,
-                            "subscribed_on":subscription.subscribed_on,
+                            "name": plan.name,
+                            "plan_type": plan.plan_type,
+                            "plan_category": plan.plan_category,
+                            "price": plan.price,
+                            "status": tutor_details.status,
+                            "is_active": plan.is_active,
+                            "expires_on": subscription.expires_on,
+                            "subscribed_on": subscription.subscribed_on,
                         }
-                    else:
-                        print("⚠️ No plan associated with the subscription.")
-                except ObjectDoesNotExist:
-                    print("❌ Subscription not found for tutor.")
-                except Exception as e:
-                    print(f"❌ Unexpected error fetching subscription or plan: {e}")
+                except TutorSubscription.DoesNotExist:
+                    pass  # No subscription for tutor
 
-                response = Response(
-                    {
-                        "message": "Login successful",
-                        "user": {
-                            'id': user.id,
-                            'first_name': user.first_name,
-                            'last_name': user.last_name,
-                            'email': user.email,
-                            'phone': user.phone,
-                            'role': user.role,
-                            'subscribed':subscribed,
-                            'streak':user.streak,
-                            'is_superuser': user.is_superuser,
-                            'plan_details':plan_details,
-                            'categories':categories
-                        },
-                    },
-                    status=status.HTTP_200_OK,
-                )
+            # Always return user object
+            return Response({
+                "message": "Success",
+                "user": {
+                    'id': user.id,
+                    'first_name': user.first_name,
+                    'last_name': user.last_name,
+                    'email': user.email,
+                    'phone': user.phone,
+                    'role': user.role,
+                    'subscribed': subscribed,
+                    'streak': user.streak,
+                    'is_superuser': user.is_superuser,
+                    'plan_details': plan_details,
+                    'categories': categories,
+                }
+            }, status=status.HTTP_200_OK)
 
-                return response
-            
-            else:
-                return Response({"error":"User Logged in"}, status=status.HTTP_200_OK)
-
-        except:
-            return Response({"error":"Error Fetching Tutor Data"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            print(f"❌ TutorHome Error: {e}")
+            return Response({"error": "Error Fetching Tutor Data"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 
@@ -903,7 +900,7 @@ class CourseDetailsView(APIView):
 
 
 class CreateCheckoutSessionView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
 
     def post(self, request, plan_id):
         plan = get_object_or_404(Plan, id=plan_id)
@@ -1063,7 +1060,7 @@ class TutorDetailsView(APIView):
 
 
 class PaymentVerificationView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
 
     def post(self, request):
         try:
@@ -1102,7 +1099,7 @@ class PaymentVerificationView(APIView):
 
 
 class PayPalSuccessView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
 
     def post(self, request):
         try:
@@ -1163,7 +1160,7 @@ class PayPalSuccessView(APIView):
                 return Response({"error": "User account has been blocked. Contact support."}, status=403)
 
             if not course.is_active:
-                return Response({"error": "Course has been blocked. Cannot complete payment."}, status=403)
+                return Response({"error": "Course has been blocked. Cannot complete payment."}, status=400)
 
             # Enroll user
             course_enrolled = UserCourseEnrollment.objects.create(
@@ -1184,7 +1181,7 @@ class PayPalSuccessView(APIView):
 
 
 class EnrolledCoursesView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
 
     def get(self, request):
         try:
@@ -1199,23 +1196,18 @@ class EnrolledCoursesView(APIView):
                 course = enrollment.course
                 user = enrollment.user
 
-                # All modules in the course
-                total_modules = course.modules_set.count()  # Assuming related_name='modules_set'
+                total_modules = course.modules_set.count()
                 
-                # Completed modules by user
                 completed_modules = ModuleProgress.objects.filter(
                     user=user,
                     module__course=course,
                     status='completed'
                 ).count()
 
-                # Calculate progress based on modules
                 progress = round((completed_modules / total_modules) * 100, 2) if total_modules > 0 else 0.0
 
-                # Update progress in enrollment
                 enrollment.progress = progress
 
-                # Update course status if all modules completed
                 if completed_modules == total_modules and total_modules > 0 and enrollment.status != 'completed':
                     enrollment.status = 'completed'
                     enrollment.completed_at = now()
@@ -1227,6 +1219,7 @@ class EnrolledCoursesView(APIView):
                     "status": enrollment.status,
                     "progress": progress,
                     "completed_on": enrollment.enrolled_on if enrollment.status == 'completed' else None,
+                    "enrolled_on":enrollment.enrolled_on,
                     "course": {
                         "id": course.id,
                         "title": course.title,
@@ -1250,7 +1243,7 @@ class EnrolledCoursesView(APIView):
 
 class StartCourseView(APIView):
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
 
     def post(self, request, id):
         try:
@@ -1272,7 +1265,7 @@ class StartCourseView(APIView):
 
 class StartedCourseDetailsView(APIView):
     
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
     
     def get(self, request, id):
         try:
@@ -1286,7 +1279,7 @@ class StartedCourseDetailsView(APIView):
 
 
 class CourseTutorView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
 
     def get(self, request, id):
         try:
@@ -1307,7 +1300,7 @@ class CourseTutorView(APIView):
 
 
 class StartedCourseModulesView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
 
     def get(self, request):
         try:
@@ -1335,8 +1328,9 @@ class StartedCourseModulesView(APIView):
                     "modules": {
                         "id": module.id,
                         "title": module.title,
-                        "description": module.description,
+                        "description": module.description
                     },
+                    "started_at":module_progress.started_at,
                     "status": module_progress.status,
                     "progress": round(progress, 2),
                     "completed_on": module_progress.completed_at.date() if module_progress.completed_at else None
@@ -1350,7 +1344,7 @@ class StartedCourseModulesView(APIView):
 
 
 class StartModuleView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
 
     def post(self, request):
         try:
@@ -1400,7 +1394,7 @@ class StartModuleView(APIView):
             return Response({"error": "Module does not exist."}, status=status.HTTP_404_NOT_FOUND)
 
         except UserCourseEnrollment.DoesNotExist:
-            return Response({"error": "You are not enrolled in this course."}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"error": "You are not enrolled in this course."}, status=status.HTTP_400_BAD_REQUEST)
 
         except Exception as e:
             return Response({"error": str(e)}, status=500)
@@ -1409,7 +1403,7 @@ class StartModuleView(APIView):
 
 class StartedModuleDetailsView(APIView):
     
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
     
     def get(self, request, id):
         try:
@@ -1423,7 +1417,7 @@ class StartedModuleDetailsView(APIView):
 
 
 class StartedModuleLessonsView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
 
     def get(self, request):
         try:
@@ -1458,11 +1452,13 @@ class StartedModuleLessonsView(APIView):
                         "description": lesson.description,
                         "video": lesson.video,
                         "documents": lesson.documents,
-                        "thumbnail": lesson.thumbnail,
+                        "thumbnail": lesson.thumbnail
                     },
+                    "started_at":lesson_progress.started_at,
                     "status": lesson_progress.status,
                     "progress": progress,
                     "completed_on": lesson_progress.completed_at.date() if lesson_progress.completed_at else None
+                    
                 })
 
             return Response(data, status=200)
@@ -1473,7 +1469,7 @@ class StartedModuleLessonsView(APIView):
     
 
 class StartLessonView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
 
     def post(self, request):
         try:
@@ -1509,7 +1505,7 @@ class StartLessonView(APIView):
 
 class StartedLessonDetailsView(APIView):
     
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
     
     def get(self, request, id):
         try:
@@ -1524,7 +1520,7 @@ class StartedLessonDetailsView(APIView):
 
 class CompleteLessonView(APIView):
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
 
     def post(self, request):
         try:
@@ -1536,8 +1532,7 @@ class CompleteLessonView(APIView):
 
             lesson = Lessons.objects.get(id=lesson_id)
 
-            # Get or create the lesson progress
-            progress, created = LessonProgress.objects.get_or_create(user=user, lesson=lesson)
+            progress, _ = LessonProgress.objects.get_or_create(user=user, lesson=lesson)
 
             if progress.status == 'completed':
                 return Response({
@@ -1545,16 +1540,13 @@ class CompleteLessonView(APIView):
                     "current_lesson_id": progress.lesson.id
                 }, status=400)
 
-            # Mark lesson as completed
             progress.status = 'completed'
             progress.completed = True
             progress.completed_at = now()
             progress.save()
 
-            # Get the module of the lesson
-            module = lesson.module  # Assuming a Lesson has a ForeignKey to Module
+            module = lesson.module  
 
-            # Check if all lessons in the module are completed for the user
             module_lessons = Lessons.objects.filter(module=module)
             user_progresses = LessonProgress.objects.filter(user=user, lesson__in=module_lessons)
 
@@ -1566,17 +1558,38 @@ class CompleteLessonView(APIView):
                 module_progress.completed_at = now()
                 module_progress.save()
 
+            course = module.course
+
+            total_modules = Modules.objects.filter(course=course, is_active=True).count()
+            completed_modules = ModuleProgress.objects.filter(
+                user=user,
+                module__course=course,
+                status='completed'
+            ).count()
+
+            course_progress = (completed_modules / total_modules) * 100 if total_modules > 0 else 0
+
+            enrollment = UserCourseEnrollment.objects.get(user=user, course=course)
+            enrollment.progress = course_progress
+
+            if course_progress == 100:
+                enrollment.status = "completed"
+                enrollment.completed_at = now()
+
+            enrollment.save()
+
             return Response({"message": "Lesson marked as completed."}, status=200)
 
         except Lessons.DoesNotExist:
             return Response({"error": "Lesson not found"}, status=404)
+
         except Exception as e:
             return Response({"error": str(e)}, status=500)
         
 
 
 class GenerateCertificateView(APIView): 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
 
     def get(self, request, course_id):
         try:
@@ -2053,7 +2066,7 @@ class GenerateCertificateView(APIView):
 
 
 class AvailableMeetingsView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
 
     def get(self, request):
         try:
@@ -2095,7 +2108,7 @@ class AvailableMeetingsView(APIView):
 
 
 class BookedMeetingsView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
     
     def get(self, request):
         try:
@@ -2112,7 +2125,7 @@ class BookedMeetingsView(APIView):
 
 
 class BookMeetingView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
 
     def post(self, request, *args, **kwargs):
         meeting_id = request.data.get("meeting_id")
@@ -2167,7 +2180,7 @@ class BookMeetingView(APIView):
 
 
 class RecentMeetingsView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
     
     def get(self, request):
         try:
@@ -2209,7 +2222,7 @@ class RecentMeetingsView(APIView):
 
 
 class TutorFeedbackView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
 
     def post(self, request):
         try:
@@ -2278,7 +2291,7 @@ class TutorFeedbackView(APIView):
 
 
 class CourseFeedbackView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
 
     def post(self, request):
         try:
@@ -2343,7 +2356,7 @@ class CourseFeedbackView(APIView):
 
 
 class TutorReportView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
 
     def post(self, request):
         try:
@@ -2389,7 +2402,7 @@ class TutorReportView(APIView):
 
 
 class CourseReportView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedUser]
 
     def post(self, request):
         try:
