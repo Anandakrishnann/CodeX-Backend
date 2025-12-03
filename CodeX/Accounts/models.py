@@ -90,6 +90,7 @@ class TutorDetails(models.Model):
     full_name = models.CharField(max_length=255)
     dob = models.DateField()
     about = models.TextField(null=True, blank=True)
+    phone = models.CharField(max_length=10, null=True, default=None)
     education = models.CharField(max_length=255, null=True, blank=True)
     expertise = models.CharField(max_length=255, null=True, blank=True)
     occupation = models.CharField(max_length=255, null=True, blank=True)
@@ -130,21 +131,6 @@ class TutorSubscription(models.Model):
 
     def __str__(self):
         return f"{self.tutor.account.email} - {self.plan.name}"
-
-
-
-class OTP(models.Model):
-    user = models.ForeignKey('Accounts', on_delete=models.CASCADE)
-    otp = models.CharField(max_length=500)
-    created_at = models.DateTimeField(auto_now_add=True)
-    expires_at = models.DateTimeField(default=timezone.now)
-
-    def is_expired(self):
-        return timezone.now() > self.expires_at
-    
-    @staticmethod
-    def generate_otp():
-        return randint(100000, 999999)
     
 
 

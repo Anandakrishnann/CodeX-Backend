@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 
 from pathlib import Path
 from datetime import timedelta
+
 import os
 import cloudinary
 import cloudinary.uploader
@@ -20,12 +21,15 @@ import dj_database_url
 import sys
 
 
+
 from dotenv import load_dotenv
 load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+LOG_DIR = os.path.join(BASE_DIR, "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
@@ -142,15 +146,39 @@ WSGI_APPLICATION = 'CodeX.wsgi.application'
 ASGI_APPLICATION = 'CodeX.asgi.application'
 
 
-import logging
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
 
-# Simple console logger for debugging
-logging.basicConfig(
-    level=logging.INFO,  # or DEBUG for more detail
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
+    "formatters": {
+        "standard": {
+            "format": "[{asctime}] {levelname} {name}: {message}",
+            "style": "{",
+        },
+    },
 
-logger = logging.getLogger(__name__)
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "standard",
+        },
+        "file": {
+            "class": "logging.FileHandler",
+            "filename": os.path.join(LOG_DIR, "codex.log"),
+            "formatter": "standard",
+        },
+    },
+
+    "loggers": {
+        "codex": {
+            "handlers": ["console", "file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}
+
+
 
 
 
@@ -267,6 +295,7 @@ CELERY_ENABLE_UTC = False  # Disable UTC to use TIME_ZONE
 CELERY_TASK_TRACK_STARTED = True  # For debugging
 CELERY_TASK_SOFT_TIME_LIMIT = 300  # 5-minute task limit
 
+
 # Channels (keep as is)
 CHANNEL_LAYERS = {
     "default": {
@@ -276,6 +305,18 @@ CHANNEL_LAYERS = {
         },
     },
 }
+
+
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": "redis://127.0.0.1:6379/1",
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        }
+    }
+}
+
 
 
 ZEGOCLOUD_APP_ID = os.getenv("ZEGOCLOUD_APP_ID")

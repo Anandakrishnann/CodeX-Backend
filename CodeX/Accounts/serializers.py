@@ -10,42 +10,40 @@ from django.db.models import Sum, Count, F, Avg
 
 
 
-class UserRegisterSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Accounts
-        fields = ["first_name", "last_name", "email", "phone", "password"]
-        extra_kwargs = {"password": {"write_only": True}}
+class UserRegisterSerializer(serializers.Serializer):
+    first_name = serializers.CharField(max_length=50)
+    last_name = serializers.CharField(max_length=50)
+    email = serializers.EmailField()
+    phone = serializers.CharField()
+    password = serializers.CharField(write_only=True)
 
-    def create(self, validated_data):
-        password = validated_data.pop("password")
-        user = Accounts.objects.create(**validated_data)
-        user.set_password(password) 
-        user.is_active = False
-        user.save()
+    def validate_first_name(self, value):
+        if not value.isalpha():
+            raise serializers.ValidationError("First name must contain only letters.")
+        if len(value) < 2:
+            raise serializers.ValidationError("First name is too short.")
+        return value
 
-        otp = OTP.generate_otp()
-        otp_hash = hashlib.sha256(str(otp).encode()).hexdigest()
+    def validate_last_name(self, value):
+        if not value.isalpha():
+            raise serializers.ValidationError("Last name must contain only letters.")
+        if len(value) < 1:
+            raise serializers.ValidationError("Last name is too short.")
+        return value
 
-        OTP.objects.filter(user=user).delete()
-        expires_at = timezone.now() + timedelta(minutes=2)
-        OTP.objects.create(user=user, otp=otp_hash, expires_at=expires_at)
+    def validate_phone(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("Phone must contain only digits.")
+        if len(value) != 10:
+            raise serializers.ValidationError("Phone must be 10 digits.")
+        return value
 
-
-        subject = "Your OTP for Verification"
-        message = (
-            f"Hello {user.first_name},\n\n"
-            f"Your OTP for account verification is: {otp}\n\n"
-            "This OTP is valid for 2 minutes.\n\n"
-            "If you didn't request this, please ignore this email."
-        )
-        from_email = os.getenv("EMAIL_HOST_USER")
-        recipient_list = [user.email]
-
-        send_mail(subject, message, from_email, recipient_list)
-
-        print(f"OTP for {user.email}: {otp}")
-
-        return user
+    def validate_password(self, value):
+        if len(value) < 8:
+            raise serializers.ValidationError("Password must be at least 8 characters long.")
+        if value.isdigit():
+            raise serializers.ValidationError("Password cannot be only numbers.")
+        return value
 
 
 
@@ -84,77 +82,6 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError("Account is Blocked.")
 
         return {"user": user}
-
-
-
-class OTPVerificationSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    otp = serializers.CharField(max_length=6)
-    def validate(self, data):
-        email = data.get("email")
-        otp = data.get("otp")
-        print(email)
-        print(otp)
-        try:
-            user = Accounts.objects.get(email=email)
-            print(user)
-            otp_entry = OTP.objects.filter(user=user).latest("created_at")
-            print(f"otp_entry{otp_entry}")
-        except (Accounts.DoesNotExist, OTP.DoesNotExist):
-            raise serializers.ValidationError("Invalid email or OTP.")
-
-        if otp_entry.is_expired():
-            raise serializers.ValidationError("OTP has expired.")
-
-        otp_hash = hashlib.sha256(str(otp).encode()).hexdigest()
-        print(otp_hash)
-        print(otp_hash)
-        print(otp_entry.otp)
-        print(otp_hash == otp_entry.otp)
-        if otp_hash == otp_entry.otp:
-            
-            user.isblocked = False  
-            user.save()
-
-            otp_entry.delete()
-
-            return {"message": "OTP verified successfully", "user_id": user.id}
-        else:
-            raise serializers.ValidationError("Invalid OTP.")
-
-
-
-class ResendOTPSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-
-    def validate(self, data):
-        email = data.get("email")
-        try:
-            user = Accounts.objects.get(email=email)
-        except Accounts.DoesNotExist:
-            raise serializers.ValidationError("User with this email does not exist.")
-
-        OTP.objects.filter(user=user).delete()  
-        otp = OTP.generate_otp()
-        otp_hash = hashlib.sha256(str(otp).encode()).hexdigest()
-        expires_at = timezone.now() + timedelta(minutes=2)
-        OTP.objects.create(user=user, otp=otp_hash, expires_at=expires_at)
-        
-        subject = "Your OTP for Verification"
-        message = (
-            f"Hello {user.first_name},\n\n"
-            f"Your OTP for account verification is: {otp}\n\n"
-            "This OTP is valid for 2 minutes.\n\n"
-            "If you didn't request this, please ignore this email."
-        )
-        from_email = os.getenv("EMAIL_HOST_USER")
-        recipient_list = [user.email]
-
-        send_mail(subject, message, from_email, recipient_list)
-
-        print(f"OTP for {user.email}: {otp}")
-
-        return {"message": "OTP has been resent to your email.", "user_id": user.id}
     
 
 

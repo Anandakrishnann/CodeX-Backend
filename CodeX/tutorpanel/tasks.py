@@ -11,6 +11,7 @@ from celery import shared_task
 from django.utils.timezone import now
 import traceback
 from Accounts.models import *
+from notifications.utils import send_notification
 
 
 @shared_task
@@ -155,3 +156,39 @@ def send_meeting_cancelled_email(meeting_id, user_id=None):
         html_message=html_message,
         fail_silently=False
     )
+
+
+
+@shared_task
+def send_meeting_created_to_users(user_ids, meeting_id):
+    meeting = Meetings.objects.get(id=meeting_id)
+    tutor = meeting.tutor
+
+    for user_id in user_ids:
+        try:
+            user = Accounts.objects.get(id=user_id)
+        except Accounts.DoesNotExist:
+            continue
+        
+        subject = "New Meeting Scheduled"
+
+        html_message = render_to_string("meeting_created_email.html", {
+            "name": user.first_name,
+            "meeting_date": meeting.date,
+            "meeting_time": meeting.time,
+            "tutor_name": tutor.full_name,
+        })
+
+        send_mail(
+            subject,
+            "",
+            os.getenv("EMAIL_HOST_USER"),
+            [user.email],
+            html_message=html_message,
+            fail_silently=False,
+        )
+
+        send_notification(
+            user,
+            f"A new meeting has been scheduled by {tutor.full_name}. Check your dashboard for details."
+        )

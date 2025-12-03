@@ -28,153 +28,147 @@ from Accounts.tasks import send_report_marked_email
 from django.core.mail import send_mail
 import os
 import logging
-logger = logging.getLogger(__name__)
+
+logger = logging.getLogger("codex")
 
 
 
 class AdminDashboardView(APIView):
     def get(self, request):
-        print("\n🔹 [AdminDashboardView] Called")
+        logger.info("[AdminDashboardView] Called")
 
-        try:
-            # --- Total counts ---
-            total_users = Accounts.objects.filter(role="user").count()
-            print(f"✅ Total Users: {total_users}")
+        # --- Total counts ---
+        total_users = Accounts.objects.filter(role="user").count()
+        logger.debug(f"Total Users: {total_users}")
 
-            total_tutors = Accounts.objects.filter(role="tutor").count()
-            print(f"✅ Total Tutors: {total_tutors}")
+        total_tutors = Accounts.objects.filter(role="tutor").count()
+        logger.debug(f"Total Tutors: {total_tutors}")
 
-            total_courses = Course.objects.count()
-            print(f"✅ Total Courses: {total_courses}")
+        total_courses = Course.objects.count()
+        logger.debug(f"Total Courses: {total_courses}")
 
-            total_revenue = (
-                UserCourseEnrollment.objects.aggregate(total=Sum("course__price"))["total"] or 0
-            )
-            print(f"✅ Total Revenue: {total_revenue:.2f}")
+        total_revenue = (
+            UserCourseEnrollment.objects.aggregate(total=Sum("course__price"))["total"] or 0
+        )
+        logger.debug(f"Total Revenue: {total_revenue:.2f}")
 
-            # --- Monthly revenue trend ---
-            print("🔹 Calculating monthly revenue trend...")
-            monthly_revenue_trend = (
-                UserCourseEnrollment.objects
-                .annotate(month=TruncMonth("enrolled_on"))
-                .values("month")
-                .annotate(revenue=Sum("course__price"))
-                .order_by("month")
-            )
-            print(f"✅ Monthly Revenue Raw Data: {list(monthly_revenue_trend)}")
+        # --- Monthly revenue trend ---
+        logger.debug("Calculating monthly revenue trend...")
+        monthly_revenue_trend = (
+            UserCourseEnrollment.objects
+            .annotate(month=TruncMonth("enrolled_on"))
+            .values("month")
+            .annotate(revenue=Sum("course__price"))
+            .order_by("month")
+        )
+        logger.debug(f"Monthly Revenue Raw Data: {list(monthly_revenue_trend)}")
 
-            monthly_revenue_trend = [
-                {"month": m["month"].strftime("%b"), "revenue": float(m["revenue"] or 0)}
-                for m in monthly_revenue_trend if m["month"]
-            ]
-            print(f"✅ Monthly Revenue Parsed: {monthly_revenue_trend}")
+        monthly_revenue_trend = [
+            {"month": m["month"].strftime("%b"), "revenue": float(m["revenue"] or 0)}
+            for m in monthly_revenue_trend if m["month"]
+        ]
+        logger.debug(f"Monthly Revenue Parsed: {monthly_revenue_trend}")
 
-            # --- Yearly revenue trend ---
-            print("🔹 Calculating yearly revenue trend...")
-            yearly_revenue_trend = (
-                UserCourseEnrollment.objects
-                .annotate(year=ExtractYear("enrolled_on"))
-                .values("year")
-                .annotate(revenue=Sum("course__price"))
-                .order_by("year")
-            )
-            print(f"✅ Yearly Revenue Trend: {list(yearly_revenue_trend)}")
+        # --- Yearly revenue trend ---
+        logger.debug("Calculating yearly revenue trend...")
+        yearly_revenue_trend = (
+            UserCourseEnrollment.objects
+            .annotate(year=ExtractYear("enrolled_on"))
+            .values("year")
+            .annotate(revenue=Sum("course__price"))
+            .order_by("year")
+        )
+        logger.debug(f"Yearly Revenue Trend: {list(yearly_revenue_trend)}")
 
-            # --- User growth trend ---
-            print("🔹 Calculating user growth trend...")
-            user_growth = (
-                Accounts.objects.filter(role="user")
-                .annotate(month=TruncMonth("created_at"))  # ✅ Correct field
-                .values("month")
-                .annotate(count=Count("id"))
-                .order_by("month")
-            )
-            print(f"✅ User Growth Raw Data: {list(user_growth)}")
+        # --- User growth trend ---
+        logger.debug("Calculating user growth trend...")
+        user_growth = (
+            Accounts.objects.filter(role="user")
+            .annotate(month=TruncMonth("created_at"))
+            .values("month")
+            .annotate(count=Count("id"))
+            .order_by("month")
+        )
+        logger.debug(f"User Growth Raw Data: {list(user_growth)}")
 
-            user_growth = [
-                {"month": u["month"].strftime("%b"), "count": u["count"]}
-                for u in user_growth if u["month"]
-            ]
-            print(f"✅ User Growth Parsed: {user_growth}")
+        user_growth = [
+            {"month": u["month"].strftime("%b"), "count": u["count"]}
+            for u in user_growth if u["month"]
+        ]
+        logger.debug(f"User Growth Parsed: {user_growth}")
 
-            # --- Top tutors ---
-            print("🔹 Fetching top tutors...")
-            top_tutors = (
-                UserCourseEnrollment.objects
-                .values("course__created_by__account__first_name", "course__created_by__account__last_name")
-                .annotate(earnings=Sum("course__price"))
-                .order_by("-earnings")[:5]
-            )
-            print(f"✅ Top Tutors Raw: {list(top_tutors)}")
+        # --- Top tutors ---
+        logger.debug("Fetching top tutors...")
+        top_tutors = (
+            UserCourseEnrollment.objects
+            .values("course__created_by__account__first_name", "course__created_by__account__last_name")
+            .annotate(earnings=Sum("course__price"))
+            .order_by("-earnings")[:5]
+        )
+        logger.debug(f"Top Tutors Raw: {list(top_tutors)}")
 
-            top_tutors = [
-                {
-                    "name": f"{t['course__created_by__account__first_name']} {t['course__created_by__account__last_name']}".strip(),
-                    "earnings": float(t["earnings"] or 0),
-                }
-                for t in top_tutors
-            ]
-            print(f"✅ Top Tutors Parsed: {top_tutors}")
-
-
-            # --- Top courses ---
-            print("🔹 Fetching top courses...")
-            top_courses = (
-                UserCourseEnrollment.objects
-                .values("course__title")
-                .annotate(enrollments=Count("id"))
-                .order_by("-enrollments")[:5]
-            )
-            print(f"✅ Top Courses Raw: {list(top_courses)}")
-
-            top_courses = [
-                {"name": c["course__title"] or "Untitled", "enrollments": c["enrollments"]}
-                for c in top_courses
-            ]
-            print(f"✅ Top Courses Parsed: {top_courses}")
-
-            # --- Recent transactions ---
-            print("🔹 Fetching recent transactions...")
-            recent_transactions = (
-                UserCourseEnrollment.objects
-                .select_related("user", "course")
-                .order_by("-enrolled_on")[:5]
-            )
-            print(f"✅ Recent Transactions Raw Count: {recent_transactions.count()}")
-
-            transactions_data = [
-                {
-                    "user": f"{tx.user.first_name} {tx.user.last_name}".strip(),
-                    "course": tx.course.title,
-                    "amount": float(tx.course.price or 0),
-                    "date": tx.enrolled_on.strftime("%b %d, %Y"),
-                }
-                for tx in recent_transactions
-            ]
-            print(f"✅ Transactions Parsed: {transactions_data}")
-
-            # --- Final response ---
-            data = {
-                "total_users": total_users,
-                "total_tutors": total_tutors,
-                "total_courses": total_courses,
-                "total_revenue": float(total_revenue),
-                "monthly_revenue_trend": monthly_revenue_trend,
-                "yearly_revenue_trend": list(yearly_revenue_trend),
-                "user_growth": user_growth,
-                "top_tutors": top_tutors,
-                "top_courses": top_courses,
-                "recent_transactions": transactions_data,
+        top_tutors = [
+            {
+                "name": f"{t['course__created_by__account__first_name']} {t['course__created_by__account__last_name']}".strip(),
+                "earnings": float(t["earnings"] or 0),
             }
+            for t in top_tutors
+        ]
+        logger.debug(f"Top Tutors Parsed: {top_tutors}")
 
-            print("✅ Final dashboard data ready to return.\n")
-            return Response(data, status=200)
 
-        except Exception as e:
-            import traceback
-            print("❌ [AdminDashboardView] ERROR:", str(e))
-            print(traceback.format_exc())
-            return Response({"error": str(e)}, status=500)
+        # --- Top courses ---
+        logger.debug("Fetching top courses...")
+        top_courses = (
+            UserCourseEnrollment.objects
+            .values("course__title")
+            .annotate(enrollments=Count("id"))
+            .order_by("-enrollments")[:5]
+        )
+        logger.debug(f"Top Courses Raw: {list(top_courses)}")
+
+        top_courses = [
+            {"name": c["course__title"] or "Untitled", "enrollments": c["enrollments"]}
+            for c in top_courses
+        ]
+        logger.debug(f"Top Courses Parsed: {top_courses}")
+
+        # --- Recent transactions ---
+        logger.debug("Fetching recent transactions...")
+        recent_transactions = (
+            UserCourseEnrollment.objects
+            .select_related("user", "course")
+            .order_by("-enrolled_on")[:5]
+        )
+        logger.debug(f"Recent Transactions Raw Count: {recent_transactions.count()}")
+
+        transactions_data = [
+            {
+                "user": f"{tx.user.first_name} {tx.user.last_name}".strip(),
+                "course": tx.course.title,
+                "amount": float(tx.course.price or 0),
+                "date": tx.enrolled_on.strftime("%b %d, %Y"),
+            }
+            for tx in recent_transactions
+        ]
+        logger.debug(f"Transactions Parsed: {transactions_data}")
+
+        # --- Final response ---
+        data = {
+            "total_users": total_users,
+            "total_tutors": total_tutors,
+            "total_courses": total_courses,
+            "total_revenue": float(total_revenue),
+            "monthly_revenue_trend": monthly_revenue_trend,
+            "yearly_revenue_trend": list(yearly_revenue_trend),
+            "user_growth": user_growth,
+            "top_tutors": top_tutors,
+            "top_courses": top_courses,
+            "recent_transactions": transactions_data,
+        }
+
+        logger.info("Final dashboard data ready to return.")
+        return Response(data, status=200)
 
 
 
@@ -216,12 +210,13 @@ class ListTutors(APIView):
                     "role": account.role,
                     "picture": tutor_details.profile_picture,
                     "expertise": tutor_details.expertise,
+                    "subscribed_on": sub.subscribed_on
                 })
 
             return Response({"users": tutor_data}, status=200)
 
         except Exception as e:
-            print(f"❌ Error: {e}")
+            logger.error(f"Error: {e}")
             return Response({"error": "Something went wrong"}, status=500)
 
 
@@ -284,16 +279,18 @@ class TutorStatus(APIView):
 
     def post(self, request):
         try:
-            user_id = request.data.get('id')
-            print("user id", user_id)
+            tutor_id = request.data.get('id')
+            logger.debug(f"tutor id: {tutor_id}")
 
-            if not user_id:
-                print("no userss")
-                return Response({"error": "User ID is required"}, status=status.HTTP_400_BAD_REQUEST)
+            if not tutor_id:
+                logger.warning("no users")
+                return Response({"error": "Tutor ID is required"}, status=status.HTTP_400_BAD_REQUEST)
             
-            user = get_object_or_404(Accounts, id=user_id)
+            account = get_object_or_404(Accounts, id=tutor_id)
             
-            tutor = TutorDetails.objects.get(account=user)
+            tutor = TutorDetails.objects.get(account=account)
+            
+            user = tutor.account
 
             user.isblocked = not user.isblocked
             user.save()
@@ -352,7 +349,9 @@ class TutorApplicationView(APIView):
     parser_classes = (MultiPartParser, FormParser)
 
     def post(self, request):
+        logger.debug(f"application request data: {request.data}")
         data = {k: v for k, v in request.data.items()}
+        logger.debug(f"application data: {data}")
 
         try:
             if request.FILES.get('profile_picture'):
@@ -386,6 +385,7 @@ class TutorApplicationView(APIView):
             return Response({"error": "File upload failed", "details": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         serializer = TutorApplicationSerializer(data=data, context={"request": request})
+        
         if serializer.is_valid():
             serializer.save(account=request.user)
             
@@ -417,8 +417,8 @@ class TutorApplicationsOverView(APIView):
     def get(self, request, id):
         try:
             user_application = get_object_or_404(TutorApplications, id=id)
-            print(f"Found application: {user_application}")
-            print(f"userId: {id}")
+            logger.debug(f"Found application: {user_application}")
+            logger.debug(f"userId: {id}")
 
             data = {
                 "id":user_application.id,
@@ -437,12 +437,12 @@ class TutorApplicationsOverView(APIView):
                 "profile_picture": user_application.profile_picture if user_application.profile_picture else None,
                 "status":user_application.status
             }
-            print(f"data: {data}")
+            logger.debug(f"data: {data}")
 
             return Response(data, status=status.HTTP_200_OK)
 
         except Exception as e:
-            print("❌ ERROR OCCURRED:")
+            logger.error("ERROR OCCURRED:")
             return Response({"error": str(e)}, status=500)
 
 
@@ -475,7 +475,7 @@ class TutorOverView(APIView):
             return Response(data, status=status.HTTP_200_OK)
 
         except Exception as e:
-            print("❌ ERROR OCCURRED:")
+            logger.error("ERROR OCCURRED:")
             traceback.print_exc()
             return Response({"error": str(e)}, status=500)
 
@@ -487,7 +487,7 @@ class AcceptApplicationView(APIView):
         try:
             application = get_object_or_404(TutorApplications, id=applicationId)
             user = get_object_or_404(Accounts, email=application.email)
-            print(f"user object: {user}")
+            logger.debug(f"user object: {user}")
 
             if not application.dob:
                 return Response({"error": "Date of Birth is required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -497,6 +497,7 @@ class AcceptApplicationView(APIView):
                 defaults={
                     "full_name": application.full_name,
                     "dob": application.dob,
+                    "phone": application.phone,
                     "about": application.about,
                     "education": application.education,
                     "expertise": application.expertise,
@@ -511,6 +512,7 @@ class AcceptApplicationView(APIView):
 
             if not created:
                 tutor.full_name = application.full_name
+                tutor.phone = application.phone
                 tutor.dob = application.dob
                 tutor.about = application.about
                 tutor.education = application.education
@@ -554,7 +556,7 @@ class AcceptApplicationView(APIView):
             return Response({"success": "Tutor Data added/updated successfully"}, status=status.HTTP_201_CREATED)
 
         except Exception as e:
-            print(f"Error While Creating Tutor: {e}")
+            logger.error(f"Error While Creating Tutor: {e}")
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -653,7 +655,7 @@ class CreateCategoryView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         except Exception as e:
-            print(f"CreateCategoryView Error: {e}")
+            logger.error(f"CreateCategoryView Error: {e}")
             return Response({"detail": "Something went wrong."}, status=status.HTTP_406_NOT_ACCEPTABLE)
 
 
@@ -677,7 +679,7 @@ class EditCategoryView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         except Exception as e:
-            print("EditCategoryView Error:", str(e))
+            logger.error(f"EditCategoryView Error: {str(e)}")
             return Response({"detail": "Error While Editing Category"}, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -699,7 +701,7 @@ class CategoryStatusView(APIView):
     def post(self, request):
         try:
             category_id = request.data.get('id')
-            print(f"category_id   {category_id}")
+            logger.debug(f"category_id: {category_id}")
             if not category_id:
                 return Response({"Error":"Id is Required"}, status=status.HTTP_400_BAD_REQUEST)
             category = get_object_or_404(CourseCategory, id=category_id)
@@ -787,47 +789,63 @@ class CourseRequestsView(APIView):
 
 
 class CourseStatusView(APIView):
-    
+
     def post(self, request, id):
         try:
             course = get_object_or_404(Course, id=id)
 
-            purchased_course = UserCourseEnrollment.objects.filter(
-                course=course,
-                status__in=["pending", "inprogress"]
-            )
-            
-            if purchased_course.exists():
-                return Response(
-                    {
-                        "message": (
-                            "This course has already been purchased by user's. "
-                            "You cannot change its status. "
-                            "If needed, you may switch the course to draft mode."
-                        )
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
             course.is_active = not course.is_active
             course.save()
 
-            tutor_user = course.created_by.account
-            
-            send_notification(
-                tutor_user,
-                "Your course status was changed by admin. Please contact support if needed."
-            )
+            try:
+                tutor = course.created_by
+                tutor_user = tutor.account if hasattr(tutor, "account") else None
+
+                if tutor_user:
+                    support_email = "codexlearninginfo@gmail.com"
+
+                    if course.is_active:
+                        subject = "✅ Course Status Update — Course Activated"
+                        message = (
+                            f"Hello {tutor_user.first_name},\n\n"
+                            f"Your course \"{course.name}\" "
+                            f"has been ACTIVATED by the admin.\n\n"
+                            f"If you have any concerns, contact {support_email}.\n\n"
+                            f"— CodeX Learning Team"
+                        )
+                        visibility = "activated"
+                    else:
+                        subject = "⚠️ Course Status Update — Course Deactivated"
+                        message = (
+                            f"Hello {tutor_user.first_name},\n\n"
+                            f"Your course \"{course.name}\" "
+                            f"has been DEACTIVATED by the admin.\n\n"
+                            f"Reason:\nThis course has been temporarily disabled by the admin.\n\n"
+                            f"For more details, contact {support_email}.\n\n"
+                            f"— CodeX Learning Team"
+                        )
+                        visibility = "deactivated"
+
+                    send_mail(
+                        subject,
+                        message,
+                        os.getenv("EMAIL_HOST_USER"),
+                        [tutor_user.email],
+                        fail_silently=True,
+                    )
+
+                    send_notification(tutor_user, f"Your course '{course.name}' was {visibility} by admin.")
+            except:
+                pass
 
             return Response(
                 {"message": "Status updated successfully", "status": course.is_active},
                 status=status.HTTP_200_OK
             )
 
-        except Exception as e:
-            print("❌ Error while updating course status:", str(e))
+        except:
             return Response(
-                {"error": "Error while updating the status", "details": str(e)},
+                {"Error": "Error While Updating the status"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -882,29 +900,65 @@ class ListCoursesView(APIView):
 
 
 class CoureseStatusView(APIView):
-    
+
     def post(self, request, id):
         try:
             course = get_object_or_404(Course, id=id)
-            
-            tutor = get_object_or_404(TutorDetails, id=course.created_by)
-            
-            user = get_object_or_404(Accounts, id=tutor.account)
 
-            if not course:
-                return Response({"Error":"Course Does Not Exists"}, status=status.HTTP_400_BAD_REQUEST)
-            
+            tutor_details = course.created_by
+            user = getattr(tutor_details, "account", None)
+
+            if not user or not user.email:
+                return Response(
+                    {"Error": "Tutor account or email not found"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
             course.is_active = not course.is_active
             course.save()
-            
-            if course.is_active == True:
-                send_notification(user, f"Your {course.name} course status was changed by admin.")
+
+            support_email = "codexlearninginfo@gmail.com"
+
+            if course.is_active:
+                subject = "✅ Course Status Update — Course Activated"
+                message = (
+                    f"Hello {user.first_name},\n\n"
+                    f"Your course \"{course.name}\" has been ACTIVATED by the admin.\n\n"
+                    f"If you have any questions or need assistance, please contact {support_email}.\n\n"
+                    f"— CodeX Learning Team"
+                )
+                visibility = "activated"
             else:
-                send_notification(user, f"Your {course.name} course was deactivated by admin. Please contact support if needed.")
-                
-            return Response({"message": "Status updated successfully", "status": course.is_active}, status=status.HTTP_200_OK)
-        except:
-            return Response({"Error": "Error While Updating the status"}, status=status.HTTP_400_BAD_REQUEST)      
+                subject = "⚠️ Course Status Update — Course Deactivated"
+                message = (
+                    f"Hello {user.first_name},\n\n"
+                    f"Your course \"{course.name}\" has been DEACTIVATED by the admin.\n\n"
+                    f"Reason:\nThis course has been temporarily disabled for review or required corrections.\n\n"
+                    f"For more support or clarification, reach out to {support_email}.\n\n"
+                    f"— CodeX Learning Team"
+                )
+                visibility = "deactivated"
+
+            send_mail(
+                subject,
+                message,
+                os.getenv("EMAIL_HOST_USER"),
+                [user.email],
+                fail_silently=False,
+            )
+
+            send_notification(user, f"Your course '{course.name}' was {visibility} by admin.")
+
+            return Response(
+                {"message": "Status updated successfully", "status": course.is_active},
+                status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            return Response(
+                {"Error": f"Error While Updating the status: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
 
 
@@ -1087,7 +1141,7 @@ class ListCourseModulesView(APIView):
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         except Exception as e:
-            print(f"Error fetching course overview: {e}")
+            logger.error(f"Error fetching course overview: {e}")
             return Response({"error": "Something went wrong"}, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -1104,7 +1158,7 @@ class CourseOverView(APIView):
             return Response(CourseRequestSerializer(course).data, status=status.HTTP_200_OK)
 
         except Exception as e:
-            print(f"Error fetching course overview: {e}")
+            logger.error(f"Error fetching course overview: {e}")
             return Response({"error": "Something went wrong"}, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -1130,25 +1184,53 @@ class ModuleStatusView(APIView):
         try:
             module = get_object_or_404(Modules, id=id)
 
-            if not module:
-                return Response({"error":"Module Not Found"}, status=status.HTTP_404_NOT_FOUND)
-            
             module.is_active = not module.is_active
             module.save()
 
-            # Notify tutor about visibility change
             try:
                 tutor = module.course.created_by
-                tutor_user = tutor.account if hasattr(tutor, 'account') else None
+                tutor_user = tutor.account if hasattr(tutor, "account") else None
+
                 if tutor_user:
-                    visibility = "activated" if module.is_active else "deactivated"
+                    support_email = "codexlearninginfo@gmail.com"
+
+                    if module.is_active:
+                        subject = "✅ Module Status Update — Module Activated"
+                        message = (
+                            f"Hello {tutor_user.first_name},\n\n"
+                            f"Your module \"{module.title}\" in the course \"{module.course.title}\" "
+                            f"has been ACTIVATED by the admin.\n\n"
+                            f"If you have any concerns, contact {support_email}.\n\n"
+                            f"— CodeX Learning Team"
+                        )
+                        visibility = "activated"
+                    else:
+                        subject = "⚠️ Module Status Update — Module Deactivated"
+                        message = (
+                            f"Hello {tutor_user.first_name},\n\n"
+                            f"Your module \"{module.title}\" in the course \"{module.course.title}\" "
+                            f"has been DEACTIVATED by the admin.\n\n"
+                            f"Reason:\nThis module has been temporarily disabled by the admin.\n\n"
+                            f"For more details, contact {support_email}.\n\n"
+                            f"— CodeX Learning Team"
+                        )
+                        visibility = "deactivated"
+
+                    send_mail(
+                        subject,
+                        message,
+                        os.getenv("EMAIL_HOST_USER"),
+                        [tutor_user.email],
+                        fail_silently=True,
+                    )
+
                     send_notification(tutor_user, f"Your module '{module.title}' was {visibility} by admin.")
-            except Exception:
+            except:
                 pass
 
-            return Response({"detail":"Status Changed Successfully"}, status=status.HTTP_200_OK)
+            return Response({"detail": "Status Changed Successfully"}, status=status.HTTP_200_OK)
         except:
-            return Response({"error":"Error While Changing Module Status"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Error While Changing Module Status"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 
@@ -1156,12 +1238,12 @@ class ListCourseLessonView(APIView):
 
     def get(self, request, id):
         try:
-            print(id)
+            logger.debug(f"module id: {id}")
             module = get_object_or_404(Modules, id=id)
             lessons = Lessons.objects.filter(module=module)
             
             serializer = LessonOverviewSerializer(lessons, many=True)
-            print(serializer)
+            logger.debug(f"serializer: {serializer}")
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         except Modules.DoesNotExist:
@@ -1256,25 +1338,53 @@ class LessonStatusView(APIView):
         try:
             lesson = get_object_or_404(Lessons, id=lessonId)
 
-            if not lesson:
-                return Response({"error":"Lesson Not Found"}, status=status.HTTP_404_NOT_FOUND)
-            
             lesson.is_active = not lesson.is_active
             lesson.save()
 
-            # Notify tutor about visibility change
             try:
                 tutor = lesson.module.course.created_by
-                tutor_user = tutor.account if hasattr(tutor, 'account') else None
+                tutor_user = tutor.account if hasattr(tutor, "account") else None
+
                 if tutor_user:
-                    visibility = "activated" if lesson.is_active else "deactivated"
+                    support_email = "codexlearninginfo@gmail.com"
+
+                    if lesson.is_active:
+                        subject = "✅ Lesson Status Update — Lesson Activated"
+                        message = (
+                            f"Hello {tutor_user.first_name},\n\n"
+                            f"Your lesson \"{lesson.title}\" in the module \"{lesson.module.title}\" "
+                            f"has been ACTIVATED by the admin.\n\n"
+                            f"If you have any concerns, contact {support_email}.\n\n"
+                            f"— CodeX Learning Team"
+                        )
+                        visibility = "activated"
+                    else:
+                        subject = "⚠️ Lesson Status Update — Lesson Deactivated"
+                        message = (
+                            f"Hello {tutor_user.first_name},\n\n"
+                            f"Your lesson \"{lesson.title}\" in the module \"{lesson.module.title}\" "
+                            f"has been DEACTIVATED by the admin.\n\n"
+                            f"Reason:\nThis lesson has been temporarily disabled by the admin.\n\n"
+                            f"For more details, contact {support_email}.\n\n"
+                            f"— CodeX Learning Team"
+                        )
+                        visibility = "deactivated"
+
+                    send_mail(
+                        subject,
+                        message,
+                        os.getenv("EMAIL_HOST_USER"),
+                        [tutor_user.email],
+                        fail_silently=True,
+                    )
+
                     send_notification(tutor_user, f"Your lesson '{lesson.title}' was {visibility} by admin.")
-            except Exception:
+            except:
                 pass
 
-            return Response({"detail":"Status Changed Successfully"}, status=status.HTTP_200_OK)
-        except: 
-            return Response({"error":"Error While Changing Lesson Status"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "Status Changed Successfully"}, status=status.HTTP_200_OK)
+        except:
+            return Response({"error": "Error While Changing Lesson Status"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 
@@ -1342,7 +1452,7 @@ class ReportsView(APIView):
             return Response(response, status=200)
 
         except Exception as e:
-            print(e)
+            logger.error(f"Error: {e}")
             return Response({"error": str(e)}, status=400)
 
 

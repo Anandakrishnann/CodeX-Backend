@@ -135,3 +135,6 @@ def send_report_marked_email(user_email, user_name, report_type, reported_name):
         html_message=html_message,
         fail_silently=False
     )
+
+
+

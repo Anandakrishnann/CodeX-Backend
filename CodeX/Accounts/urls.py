@@ -16,6 +16,7 @@ urlpatterns = [
     path('courses/', ListCourseView.as_view(), name='courses'),
     path("categories/", ListCategoriesView.as_view(), name="categories"),
     path('check_enrollment/', CheckUserEnrollmentView.as_view(), name='check-user-enrollment'),
+    path('check-tutor/<str:course_id>/', CheckCourseTutor.as_view(), name='check-tutor'),
     path("course_details/<str:id>/", CourseDetailsView  .as_view(), name="course_details"),
     path("tutor_details/<str:id>/", TutorDetailsView  .as_view(), name="tutor_details"),
     path('edit_user/', EditUserView.as_view(), name='edit_user'),

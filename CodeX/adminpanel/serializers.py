@@ -39,7 +39,7 @@ class EditUserSerializer(serializers.ModelSerializer):
 class PlanSerializer(serializers.ModelSerializer):
     class Meta:
         model = Plan
-        fields = ['name', 'plan_type', 'plan_category', 'price', 'description']
+        fields = ['name', 'plan_type', 'plan_category', 'price', 'description', 'deactivate']
 
 
 
@@ -47,7 +47,6 @@ class PlanListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Plan
         fields = ['id', 'name', 'plan_type', 'plan_category', 'price', 'description']
-
 
 
 

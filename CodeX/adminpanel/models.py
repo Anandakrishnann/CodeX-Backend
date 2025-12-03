@@ -95,6 +95,7 @@ class Plan(models.Model):
     description = models.TextField()
     stripe_price_id = models.CharField(max_length=100, null=True, blank=True)
     is_active = models.BooleanField(default=True)
+    deactivate = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.name} - {self.plan_type}"

@@ -1,49 +1,42 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <title>New Meeting Scheduled</title>
+<meta charset="UTF-8">
+<title>New Meeting Scheduled</title>
 </head>
+<body style="font-family: Arial, sans-serif; background-color: #f8f9fa; padding: 20px;">
 
-<body style="font-family: Arial, sans-serif; background-color: #f7f7f9; padding: 20px;">
+<div style="max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 8px; border: 1px solid #ddd;">
+    
+    <h2 style="color: #5cb85c; text-align: center;">New Meeting Scheduled 📢</h2>
 
-    <div style="max-width: 600px; margin: auto; background: #ffffff; border-radius: 10px;
-                padding: 25px; border: 1px solid #e5e5e5;">
+    <p style="font-size: 16px; color: #333;">Hello <strong>{{ name }}</strong>,</p>
 
-        <h2 style="color: #333; margin-bottom: 10px;">📢 New Meeting Scheduled</h2>
+    <p style="font-size: 15px; color: #555;">
+        A new meeting has been scheduled by your tutor <strong>{{ tutor_name }}</strong>.  
+        Please find the meeting details below:
+    </p>
 
-        <p style="font-size: 15px; color: #555;">
-            Hello <strong>{{ name }}</strong>,
-        </p>
+    <ul style="font-size: 15px; color: #555;">
+        <li><strong>Date:</strong> {{ meeting_date }}</li>
+        <li><strong>Time:</strong> {{ meeting_time }}</li>
+        <li><strong>Tutor:</strong> {{ tutor_name }}</li>
+    </ul>
 
-        <p style="font-size: 15px; color: #555; line-height: 1.6;">
-            Your tutor <strong>{{ tutor_name }}</strong> has scheduled a new meeting exclusively 
-            for students currently enrolled and learning their course.
-        </p>
+    <p style="font-size: 15px; color: #555;">
+        Kindly note that <strong>only limited slots are available</strong> for this meeting.  
+        Make sure to join on time to not miss your slot.
+    </p>
 
-        <p style="font-size: 15px; color: #555;">
-            Here are the meeting details:
-        </p>
+    <p style="font-size: 15px; color: #555;">
+        If you have any questions, feel free to contact your tutor or the support team.
+    </p>
 
-        <ul style="font-size: 15px; color: #555; line-height: 1.8;">
-            <li>📅 <strong>Date:</strong> {{ meeting_date }}</li>
-            <li>🕒 <strong>Time:</strong> {{ meeting_time }}</li>
-            <li>👥 <strong>Limited slots:</strong> Book before it fills!</li>
-        </ul>
+    <p style="font-size: 13px; color: #999; text-align: center; margin-top: 20px;">
+        &copy; {{ now|date:"Y" }} CodeX Learning. All rights reserved.
+    </p>
 
-        <p style="font-size: 15px; color: #444; margin-top: 20px;">
-            If you wish to attend, please visit the meeting page and grab your slot 
-            before the limit is reached.
-        </p>
-
-        <p style="margin-top: 25px; font-size: 13px; color: #888;">
-            This meeting is only available to students who purchased the course and are 
-            currently progressing through its modules.
-        </p>
-
-        <p style="margin-top: 15px; font-size: 13px; color: #888;">– CodexLearning Team</p>
-
-    </div>
+</div>
 
 </body>
 </html>

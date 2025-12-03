@@ -5,6 +5,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+
 class AccountsSerializer(serializers.ModelSerializer):
     class Meta:
         model = Accounts
@@ -16,6 +18,8 @@ class AccountsSerializer(serializers.ModelSerializer):
         data['first_name'] = data['first_name'] or "Unknown"
         data['last_name'] = data['last_name'] or "User"
         return data
+
+
 
 class ChatRoomSerializer(serializers.ModelSerializer):
     participants = AccountsSerializer(many=True, read_only=True)
@@ -49,6 +53,8 @@ class ChatRoomSerializer(serializers.ModelSerializer):
                 return f"{first_name} {last_name}".strip()
         logger.warning(f"Room {obj.id} - No receiver found, participants: {[p.id for p in participants]}")
         return "Chat Room"
+
+
 
 class MessageSerializer(serializers.ModelSerializer):
     sender = serializers.StringRelatedField()

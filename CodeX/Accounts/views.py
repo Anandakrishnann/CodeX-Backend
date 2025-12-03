@@ -38,7 +38,6 @@ from PIL import Image, ImageDraw, ImageFont
 from django.http import HttpResponse, Http404
 from datetime import datetime, timedelta
 from io import BytesIO
-import logging
 import stripe # type: ignore
 import traceback
 from rest_framework.decorators import api_view, permission_classes, authentication_classes
@@ -47,9 +46,11 @@ from django.utils.decorators import method_decorator
 from django.utils.timezone import make_aware
 from .permissions import IsAuthenticatedUser
 from .tasks import *
-import logging
-logger = logging.getLogger(__name__)
+from django.core.cache import cache
+import hashlib, random
 import os
+
+logger = logging.getLogger("codex")
 
 
 User = get_user_model()
@@ -62,73 +63,177 @@ User = get_user_model()
 
 
 class UserRegisterView(APIView):
-
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = UserRegisterSerializer(data=request.data)
-        if serializer.is_valid():
-            user = serializer.save()
-            return Response(
-                {"message": "User registered successfully. Please check your email for OTP."},
-                status=status.HTTP_201_CREATED,
-            )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            serializer = UserRegisterSerializer(data=request.data)
+
+            if not serializer.is_valid():
+                logger.warning(f"User registration validation failed: {serializer.errors}")
+                return Response(serializer.errors, status=400)
+
+            user_data = serializer.validated_data
+            email = user_data["email"].strip()
+
+            if Accounts.objects.filter(email=email).exists():
+                logger.warning(f"Registration failed: User already exists ({email})")
+                return Response({"error": "User already exists"}, status=400)
+
+            # Generate OTP
+            otp = randint(100000, 999999)
+            otp_hash = hashlib.sha256(str(otp).encode()).hexdigest()
+
+            # Store user data for 10 minutes
+            reg_key = f"pending_register:{email}"
+            cache.set(reg_key, {
+                "user_data": user_data,
+                "attempts": 0
+            }, timeout=600)  # 10 minutes
+
+            # Store OTP for 2 minutes
+            otp_key = f"otp:{email}"
+            cache.set(otp_key, otp_hash, timeout=120)  # 2 minutes
+
+            # Sending Email
+            try:
+                send_mail(
+                    "Your OTP for Verification",
+                    f"Your OTP is: {otp}",
+                    settings.EMAIL_HOST_USER,
+                    [email]
+                )
+            except Exception:
+                logger.exception(f"Email sending failed for OTP to {email}")
+                return Response({"error": "Failed to send OTP email"}, status=500)
+
+            logger.info(f"OTP generated for {email}: {otp}")
+            return Response({"message": "OTP sent to your email"}, status=200)
+
+        except Exception:
+            logger.exception("Unexpected error during user registration")
+            return Response({"error": "Something went wrong"}, status=500)
 
 
 
 class OTPVerificationView(APIView):
     permission_classes = [AllowAny]
-    
+
     def post(self, request):
-        serializer = OTPVerificationSerializer(data=request.data)
+        try:
+            email = request.data.get("email", "").strip()
+            otp = request.data.get("otp")
 
-        if serializer.is_valid():
-            user_id = serializer.validated_data.get('user_id')
-            user = Accounts.objects.get(id=user_id)
-            subject = "✅ Account Activated Successfully"
-            message = (
-                f"Hello {user.first_name},\n\n"
-                f"Your account at CodeX Learning has been successfully activated.\n\n"
-                f"You can now log in and start learning!\n\n"
-                f"The CodeX Learning Team"
-            )
-            from_email = os.getenv("EMAIL_HOST_USER")
-            recipient_list = [user.email]
-            
-            send_mail(subject, message, from_email, recipient_list)
-            
-            return Response(serializer.validated_data, status=status.HTTP_200_OK)
+            if not email or not otp:
+                logger.warning("OTP verification attempt with missing fields")
+                return Response({"error": "Email and OTP are required"}, status=400)
 
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            reg_key = f"pending_register:{email}"
+            otp_key = f"otp:{email}"
+
+            data = cache.get(reg_key)
+            otp_hash = cache.get(otp_key)
+
+            if not data:
+                logger.warning(f"Registration expired for {email}")
+                return Response({"error": "Registration expired. Please register again."}, status=400)
+
+            if not otp_hash:
+                logger.warning(f"OTP expired for {email}")
+                return Response({"error": "OTP expired. Please request a new OTP."}, status=400)
+
+            if data["attempts"] >= 5:
+                logger.warning(f"OTP verification blocked for {email}: Too many attempts")
+                return Response({"error": "Too many attempts. Try again later"}, status=429)
+
+            entered_hash = hashlib.sha256(str(otp).encode()).hexdigest()
+
+            if entered_hash != otp_hash:
+                data["attempts"] += 1
+                cache.set(reg_key, data, timeout=600)
+                logger.warning(f"Invalid OTP for {email}. Attempts: {data['attempts']}")
+                return Response({"error": "Invalid OTP"}, status=400)
+
+            # OTP correct → create user
+            user_data = data["user_data"]
+            password = user_data.pop("password")
+
+            user = Accounts.objects.create(**user_data)
+            user.set_password(password)
+            user.is_active = True
+            user.save()
+
+            # Cleanup
+            cache.delete(reg_key)
+            cache.delete(otp_key)
+
+            logger.info(f"User created after OTP verification: {email}")
+
+            try:
+                send_mail(
+                    "Account Activated Successfully",
+                    "Your CodeX Learning account is now active.",
+                    settings.EMAIL_HOST_USER,
+                    [email]
+                )
+            except Exception:
+                logger.exception(f"Activation email sending failed for {email}")
+
+            return Response({"message": "Account created successfully"}, status=200)
+
+        except Exception:
+            logger.exception("Unexpected error during OTP verification")
+            return Response({"error": "Something went wrong"}, status=500)
 
 
 
 class ResendOTPView(APIView):
     permission_classes = [AllowAny]
+
     def post(self, request):
-        serializer = ResendOTPSerializer(data=request.data)
-        if serializer.is_valid():
-            
-            user_id = serializer.validated_data.get('user_id')
-            user = Accounts.objects.get(id=user_id)
-            subject = "✅ Account Activated Successfully"
-            message = (
-                f"Hello {user.first_name},\n\n"
-                f"Your account at CodeX Learning has been successfully activated.\n\n"
-                f"You can now log in and start learning!\n\n"
-                f"The CodeX Learning Team"
-            )
-            from_email = os.getenv("EMAIL_HOST_USER")
-            recipient_list = [user.email]
-            
-            send_mail(subject, message, from_email, recipient_list)
-            
-            return Response(
-                {"message": "OTP has been resent to your email."},
-                status=status.HTTP_200_OK,
-            )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            email = request.data.get("email", "").strip()
+
+            if not email:
+                logger.warning("Resend OTP attempt with missing email")
+                return Response({"error": "Email is required"}, status=400)
+
+            reg_key = f"pending_register:{email}"
+            otp_key = f"otp:{email}"
+
+            data = cache.get(reg_key)
+
+            if not data:
+                logger.warning(f"Resend OTP failed - no pending registration for {email}")
+                return Response({"error": "No pending registration found"}, status=400)
+
+            # Generate new OTP
+            otp = randint(100000, 999999)
+            otp_hash = hashlib.sha256(str(otp).encode()).hexdigest()
+
+            # Save OTP for 2 minutes
+            cache.set(otp_key, otp_hash, timeout=120)
+
+            cache.set(reg_key, data, timeout=600)
+
+            try:
+                send_mail(
+                    "Your OTP for Verification",
+                    f"Your OTP is: {otp}",
+                    settings.EMAIL_HOST_USER,
+                    [email]
+                )
+            except Exception:
+                logger.exception(f"Failed to resend OTP email to {email}")
+                return Response({"error": "Failed to resend OTP email"}, status=500)
+
+            logger.info(f"OTP resent to {email}: {otp}")
+            return Response({"message": "OTP resent successfully"}, status=200)
+
+        except Exception:
+            logger.exception("Unexpected error during resend OTP")
+            return Response({"error": "Something went wrong"}, status=500)
+
 
 
 
@@ -167,8 +272,10 @@ class LoginView(APIView):
         try:
             account = Accounts.objects.get(email=email)
             if account.google_verified:
+                logger.warning(f"User {email} attempted regular login but account is Google verified")
                 return Response({"error":"⚠️ Unable to log you in. Please sign in using your Google account to continue."}, status=status.HTTP_406_NOT_ACCEPTABLE)
-        except:
+        except Accounts.DoesNotExist:
+            logger.warning(f"Login attempt for non-existent user: {email}")
             return Response({"error":"User Does Not Found"}, status=status.HTTP_404_NOT_FOUND)
         if serializer.is_valid():
             user = serializer.validated_data["user"]
@@ -182,7 +289,7 @@ class LoginView(APIView):
             try:
                 tutor_details = TutorDetails.objects.get(account=user)
             except ObjectDoesNotExist:
-                print("❌ TutorDetails not found for user.")
+                logger.warning("TutorDetails not found for user.")
                 tutor_details = None
 
             if tutor_details:
@@ -203,14 +310,14 @@ class LoginView(APIView):
                             "subscribed_on":subscription.subscribed_on,
                         }
                     else:
-                        print("⚠️ No plan associated with the subscription.")
+                        logger.warning("No plan associated with the subscription.")
                 except ObjectDoesNotExist:
-                    print("❌ Subscription not found for tutor.")
+                    logger.warning("Subscription not found for tutor.")
                     subscribed = False
                     plan_details = None
 
                 except Exception as e:
-                    print(f"❌ Unexpected error fetching subscription or plan: {e}")
+                    logger.error(f"Unexpected error fetching subscription or plan: {e}")
             
 
             response = Response(
@@ -407,7 +514,7 @@ class LogoutView(APIView):
                 token = RefreshToken(refresh_token)
                 token.blacklist()
             except Exception as e:
-                print("Token blacklisting error:", e)
+                logger.error(f"Token blacklisting error: {e}")
 
         response = Response({"message": "Logout successful"}, status=status.HTTP_200_OK)
 
@@ -518,104 +625,96 @@ class UserDashboardView(APIView):
     permission_classes = [IsAuthenticatedUser]
 
     def get(self, request):
-        try:
-            user = request.user
-            print("🔹 User:", user.id, user.email)
+        user = request.user
+        logger.debug(f"User: {user.id} {user.email}")
 
-            # ======== Basic Stats ========
-            active_courses = UserCourseEnrollment.objects.filter(user=user, status='progress').count()
-            completed_courses = UserCourseEnrollment.objects.filter(user=user, status='completed').count()
-            print("🟢 Active Courses:", active_courses)
-            print("🔵 Completed Courses:", completed_courses)
+        # ======== Basic Stats ========
+        active_courses = UserCourseEnrollment.objects.filter(user=user, status='progress').count()
+        completed_courses = UserCourseEnrollment.objects.filter(user=user, status='completed').count()
+        logger.debug(f"Active Courses: {active_courses}")
+        logger.debug(f"Completed Courses: {completed_courses}")
 
-            achievements = 0  
-            day_streak = 0   
+        achievements = 0  
+        day_streak = 0   
 
-            # ======== Current Active Course ========
-            current_enrollment = (
-                UserCourseEnrollment.objects
-                .filter(user=user, status='progress')
-                .select_related('course')
-                .first()
-            )
-            print("📘 Current Enrollment:", current_enrollment)
+        # ======== Current Active Course ========
+        current_enrollment = (
+            UserCourseEnrollment.objects
+            .filter(user=user, status='progress')
+            .select_related('course')
+            .first()
+        )
+        logger.debug(f"Current Enrollment: {current_enrollment}")
 
-            current_course_data = None
-            if current_enrollment:
-                course = current_enrollment.course
-                print("🎯 Current Course:", course.title, course.id)
+        current_course_data = None
+        if current_enrollment:
+            course = current_enrollment.course
+            logger.debug(f"Current Course: {course.title} {course.id}")
 
-                # Debugging module & lesson queries
-                total_modules = ModuleProgress.objects.filter(module__course=course, user=user).count()
-                total_lessons = LessonProgress.objects.filter(lesson__module__course=course, user=user).count()
-                print("📦 Total Modules:", total_modules)
-                print("📚 Total Lessons:", total_lessons)
+            # Debugging module & lesson queries
+            total_modules = ModuleProgress.objects.filter(module__course=course, user=user).count()
+            total_lessons = LessonProgress.objects.filter(lesson__module__course=course, user=user).count()
+            logger.debug(f"Total Modules: {total_modules}")
+            logger.debug(f"Total Lessons: {total_lessons}")
 
-                completed_modules = ModuleProgress.objects.filter(module__course=course, user=user, status='completed').count()
-                completed_lessons = LessonProgress.objects.filter(lesson__module__course=course, user=user, status='completed').count()
-                print("✅ Completed Modules:", completed_modules)
-                print("🏁 Completed Lessons:", completed_lessons)
+            completed_modules = ModuleProgress.objects.filter(module__course=course, user=user, status='completed').count()
+            completed_lessons = LessonProgress.objects.filter(lesson__module__course=course, user=user, status='completed').count()
+            logger.debug(f"Completed Modules: {completed_modules}")
+            logger.debug(f"Completed Lessons: {completed_lessons}")
 
-                current_course_data = {
-                    "id": course.id,
-                    "title": course.title,
-                    "description": course.description,
-                    "level": course.level,
-                    "progress": float(current_enrollment.progress),
-                    "status": current_enrollment.status,
-                    "last_accessed": current_enrollment.enrolled_on,
-                    "modules_total": total_modules,
-                    "modules_completed": completed_modules,
-                    "lessons_total": total_lessons,
-                    "lessons_completed": completed_lessons
-                }
-            else:
-                print("⚠️ No current active course found for user")
-
-            # ======== All Completed Courses ========
-            completed_enrollments = (
-                UserCourseEnrollment.objects
-                .filter(user=user, status='completed')
-                .select_related('course')
-                .order_by('-completed_at')
-            )
-            print("🏆 Completed Enrollments:", completed_enrollments.count())
-
-            completed_courses_list = []
-            for enrollment in completed_enrollments:
-                course = enrollment.course
-                completed_courses_list.append({
-                    "id": course.id,
-                    "title": course.title,
-                    "description": course.description,
-                    "completed_on": enrollment.completed_at,
-                })
-
-            # ======== Final Response ========
-            # Backward compatibility: also expose the first completed course as completed_course
-            first_completed = completed_courses_list[0] if completed_courses_list else None
-
-            response = {
-                "stats": {
-                    "active_courses": active_courses,
-                    "completed_courses": completed_courses,
-                    "achievements": achievements,
-                    "day_streak": day_streak
-                },
-                "current_course": current_course_data,
-                "completed_courses": completed_courses_list,
-                "completed_course": first_completed
+            current_course_data = {
+                "id": course.id,
+                "title": course.title,
+                "description": course.description,
+                "level": course.level,
+                "progress": float(current_enrollment.progress),
+                "status": current_enrollment.status,
+                "last_accessed": current_enrollment.enrolled_on,
+                "modules_total": total_modules,
+                "modules_completed": completed_modules,
+                "lessons_total": total_lessons,
+                "lessons_completed": completed_lessons
             }
+        else:
+            logger.warning("No current active course found for user")
 
-            print("🧾 Final Response:", response)
-            return Response(response, status=status.HTTP_200_OK)
+        # ======== All Completed Courses ========
+        completed_enrollments = (
+            UserCourseEnrollment.objects
+            .filter(user=user, status='completed')
+            .select_related('course')
+            .order_by('-completed_at')
+        )
+        logger.debug(f"Completed Enrollments: {completed_enrollments.count()}")
 
-        except Exception as e:
-            print("🚨 Dashboard error:", str(e))
-            return Response(
-                {"error": "Error while fetching user dashboard data"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        completed_courses_list = []
+        for enrollment in completed_enrollments:
+            course = enrollment.course
+            completed_courses_list.append({
+                "id": course.id,
+                "title": course.title,
+                "description": course.description,
+                "completed_on": enrollment.completed_at,
+            })
+
+        # ======== Final Response ========
+        # Backward compatibility: also expose the first completed course as completed_course
+        first_completed = completed_courses_list[0] if completed_courses_list else None
+
+        response = {
+            "stats": {
+                "active_courses": active_courses,
+                "completed_courses": completed_courses,
+                "achievements": achievements,
+                "day_streak": day_streak
+            },
+            "current_course": current_course_data,
+            "completed_courses": completed_courses_list,
+            "completed_course": first_completed
+        }
+
+        logger.debug(f"Final Response: {response}")
+        return Response(response, status=status.HTTP_200_OK)
 
 
 
@@ -624,22 +723,18 @@ class UserProfileView(APIView):
     permission_classes = [IsAuthenticatedUser]
 
     def get(self, request):
-        try:
-            user = request.user
-            userData = {
-                "first_name":user.first_name,
-                "last_name":user.last_name,
-                "email":user.email,
-                "phone":user.phone,
-                "streak":user.streak,
-                "last_completed":user.last_completed_task,
-                "profile_picture": user.profile_picture
-            }
-            print(userData)
-            return Response(userData, status=status.HTTP_200_OK)
-        except Exception as e:
-            print("❌ ERROR OCCURRED:")
-            return Response({"error": str(e)}, status=500)  # Return actual error
+        user = request.user
+        userData = {
+            "first_name":user.first_name,
+            "last_name":user.last_name,
+            "email":user.email,
+            "phone":user.phone,
+            "streak":user.streak,
+            "last_completed":user.last_completed_task,
+            "profile_picture": user.profile_picture
+        }
+        logger.debug(f"User data retrieved for user {user.id}")
+        return Response(userData, status=status.HTTP_200_OK)
 
 
 
@@ -755,40 +850,51 @@ class TutorHomeView(APIView):
             }, status=status.HTTP_200_OK)
 
         except Exception as e:
-            print(f"❌ TutorHome Error: {e}")
+            logger.error(f"TutorHome Error: {e}")
             return Response({"error": "Error Fetching Tutor Data"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 
 class ListCourseView(APIView):
-
     permission_classes = [AllowAny]
 
-    def get(self, requests):
+    def get(self, request):
         try:
+            search_query = request.GET.get('search', '').strip()
+            
             course_requests = Course.objects.filter(is_active=True, is_draft=False)
+            
+            if search_query:
+                from django.db.models import Q
+                course_requests = course_requests.filter(
+                    Q(title__icontains=search_query) |
+                    Q(description__icontains=search_query) |
+                    Q(category_id__name__icontains=search_query) |
+                    Q(created_by__full_name__icontains=search_query) |
+                    Q(level__icontains=search_query)
+                )
+            
             data = []
-
-            for reqeusts in course_requests:
+            for course in course_requests:
                 data.append({
-                    "id":reqeusts.id,
-                    "name": reqeusts.name,
-                    "created_by":reqeusts.created_by.full_name,
-                    "category": reqeusts.category_id.name if reqeusts.category_id else None,
-                    "category_id":reqeusts.category_id.id if reqeusts.category_id else None,
-                    "title": reqeusts.title,
-                    "description": reqeusts.description,
-                    "requirements": reqeusts.requirements,
-                    "benefits": reqeusts.benefits,
-                    "price": reqeusts.price,
-                    "created_at": reqeusts.created_at,
-                    "is_active": reqeusts.is_active,
-                    "level":reqeusts.level
+                    "id": course.id,
+                    "name": course.name,
+                    "created_by": course.created_by.full_name,
+                    "category": course.category_id.name if course.category_id else None,
+                    "category_id": course.category_id.id if course.category_id else None,
+                    "title": course.title,
+                    "description": course.description,
+                    "requirements": course.requirements,
+                    "benefits": course.benefits,
+                    "price": course.price,
+                    "created_at": course.created_at,
+                    "is_active": course.is_active,
+                    "level": course.level
                 })
 
             return Response(data, status=status.HTTP_200_OK)
-        except:
-            return Response({"error":"Error While Fetching Course Request"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({"error": "Error While Fetching Course Request"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 
@@ -802,7 +908,7 @@ class ListCategoriesView(APIView):
             serializer = CourseCategorySerializer(categories, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except Exception as e:
-            print(f"Error fetching categories: {e}")  # Optional: for logging
+            logger.error(f"Error fetching categories: {e}")
             return Response({"error": "Error while fetching categories"}, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -822,6 +928,24 @@ class CheckUserEnrollmentView(APIView):
         ).exists()
 
         return Response({"enrolled": is_enrolled}, status=status.HTTP_200_OK)
+
+
+
+class CheckCourseTutor(APIView):
+    
+    permission_classes = [AllowAny]
+    
+    def get(self, request, course_id):
+        try:
+            
+            tutor = TutorDetails.objects.get(account=request.user)
+        
+            is_tutor = Course.objects.filter(created_by=tutor, id=course_id).exists()
+            
+            return Response({"is_tutor": is_tutor}, status=status.HTTP_200_OK)
+        
+        except Exception as e:
+            return Response({"error":"Error while checking tutor course"}, status=status.HTTP_400_BAD_REQUEST)
  
         
 
@@ -875,7 +999,7 @@ class CourseDetailsView(APIView):
                 "tutor_id":tutor.id,
                 "first_name": tutor.first_name,
                 "last_name":tutor.last_name,
-                "profile_picture":tutor.profile_picture,
+                "profile_picture":tutor_details.profile_picture,
                 "category": course.category_id.name if course.category_id else None,
                 "category_id": course.category_id.id if course.category_id else None,
                 "title": course.title,
@@ -930,15 +1054,12 @@ class CreateCheckoutSessionView(APIView):
                 },
             )
 
-            print(f"✅ Stripe Session created successfully")
-            print(f"Session ID: {session.id}")
-            print(f"client_reference_id: {request.user.id}")
-            print(f"metadata: {{'plan_id': {plan.id}}}")
+            logger.info(f"Stripe Session created successfully. Session ID: {session.id}, client_reference_id: {request.user.id}, metadata: {{'plan_id': {plan.id}}}")
 
             return Response({'checkout_url': session.url}, status=200)
 
         except Exception as e:
-            print(f"❌ Error creating checkout session: {e}")
+            logger.error(f"Error creating checkout session: {e}")
             return Response({'detail': str(e)}, status=400)
 
 
@@ -964,8 +1085,7 @@ class StripeSuccessView(APIView):
             customer_id = session.get('customer')
             subscription_id = session.get('subscription')
             
-            print(f"🎉 Success page accessed with session_id={session_id}")
-            print(f"🎯 tutor_id={tutor_id}, plan_id={plan_id}")
+            logger.info(f"Success page accessed with session_id={session_id}, tutor_id={tutor_id}, plan_id={plan_id}")
             
             try:
                 # Get the objects
@@ -994,20 +1114,20 @@ class StripeSuccessView(APIView):
                     }
                 )
                 
-                print(f"✅ Subscription {'created' if created else 'updated'}: {subscription}")
+                logger.info(f"Subscription {'created' if created else 'updated'}: {subscription}")
                 
                 # Redirect to frontend success page
                 return redirect(redirect_url)
                 
             except Exception as e:
-                print(f"❌ Error creating subscription: {e}")
+                logger.error(f"Error creating subscription: {e}")
                 import traceback
                 traceback.print_exc()
                 # Still redirect even on error
                 return redirect(f"{redirect_url}?error={str(e)}")
                 
         except stripe.error.StripeError as e:
-            print(f"❌ Stripe error: {e}")
+            logger.error(f"Stripe error: {e}")
             return redirect(f"{redirect_url}?error=Invalid session")
 
 
@@ -1175,7 +1295,7 @@ class PayPalSuccessView(APIView):
             return Response({"message": "Course purchased successfully. Go to dashboard to check it out."}, status=200)
 
         except Exception as e:
-            print("Unhandled error:", str(e))
+            logger.error(f"Unhandled error: {str(e)}")
             return Response({"error": str(e)}, status=400)
 
 
@@ -1184,60 +1304,55 @@ class EnrolledCoursesView(APIView):
     permission_classes = [IsAuthenticatedUser]
 
     def get(self, request):
-        try:
-            enrollments = UserCourseEnrollment.objects.filter(user=request.user)
+        enrollments = UserCourseEnrollment.objects.filter(user=request.user)
+        
+        response_data = []
+
+        if not enrollments.exists():
+            logger.debug(f"No enrollments found for user {request.user.id}")
+            return Response([], status=status.HTTP_200_OK)
+
+        for enrollment in enrollments:
+            course = enrollment.course
+            user = enrollment.user
+
+            total_modules = course.modules_set.count()
             
-            response_data = []
+            completed_modules = ModuleProgress.objects.filter(
+                user=user,
+                module__course=course,
+                status='completed'
+            ).count()
 
-            if not enrollments.exists():
-                return Response([], status=status.HTTP_200_OK)
+            progress = round((completed_modules / total_modules) * 100, 2) if total_modules > 0 else 0.0
 
-            for enrollment in enrollments:
-                course = enrollment.course
-                user = enrollment.user
+            enrollment.progress = progress
 
-                total_modules = course.modules_set.count()
-                
-                completed_modules = ModuleProgress.objects.filter(
-                    user=user,
-                    module__course=course,
-                    status='completed'
-                ).count()
+            if completed_modules == total_modules and total_modules > 0 and enrollment.status != 'completed':
+                enrollment.status = 'completed'
+                enrollment.completed_at = now()
+            
+            enrollment.save()
 
-                progress = round((completed_modules / total_modules) * 100, 2) if total_modules > 0 else 0.0
-
-                enrollment.progress = progress
-
-                if completed_modules == total_modules and total_modules > 0 and enrollment.status != 'completed':
-                    enrollment.status = 'completed'
-                    enrollment.completed_at = now()
-                
-                enrollment.save()
-
-                enrollment_data = {
-                    "id": enrollment.id,
-                    "status": enrollment.status,
-                    "progress": progress,
-                    "completed_on": enrollment.enrolled_on if enrollment.status == 'completed' else None,
-                    "enrolled_on":enrollment.enrolled_on,
-                    "course": {
-                        "id": course.id,
-                        "title": course.title,
-                        "description": course.description,
-                        "level": course.level,
-                        "price": str(course.price),
-                        "category": course.category_id.name if course.category_id else None,
-                    }
+            enrollment_data = {
+                "id": enrollment.id,
+                "status": enrollment.status,
+                "progress": progress,
+                "completed_on": enrollment.enrolled_on if enrollment.status == 'completed' else None,
+                "enrolled_on":enrollment.enrolled_on,
+                "course": {
+                    "id": course.id,
+                    "title": course.title,
+                    "description": course.description,
+                    "level": course.level,
+                    "price": str(course.price),
+                    "category": course.category_id.name if course.category_id else None,
                 }
-                response_data.append(enrollment_data)
+            }
+            response_data.append(enrollment_data)
 
-            return Response(response_data)
-
-        except Exception as e:
-            import traceback
-            print("Enrollment error:", str(e))
-            traceback.print_exc()
-            return Response({'error': str(e)}, status=400)
+        logger.debug(f"Returning {len(response_data)} enrollments for user {request.user.id}")
+        return Response(response_data)
         
 
 
@@ -1248,18 +1363,14 @@ class StartCourseView(APIView):
     def post(self, request, id):
         try:
             enrolled_course = UserCourseEnrollment.objects.get(course=id, user=request.user)
-            enrolled_course.status = "progress"
-            enrolled_course.save()
-
-            return Response({"message":"Course Started Successfully"}, status=status.HTTP_200_OK)
-        
         except UserCourseEnrollment.DoesNotExist:
-            print("Course Does Not Exists")
+            logger.warning(f"Course enrollment not found for course {id} and user {request.user.id}")
             return Response({"error":"Course Does Not Exists"}, status=status.HTTP_404_NOT_FOUND)
         
-        except Exception as e:
-            print(str(e))
-            return Response({"error":str(e)}, status=400)
+        enrolled_course.status = "progress"
+        enrolled_course.save()
+        logger.info(f"Course {id} started for user {request.user.id}")
+        return Response({"message":"Course Started Successfully"}, status=status.HTTP_200_OK)
 
 
 
@@ -1284,18 +1395,17 @@ class CourseTutorView(APIView):
     def get(self, request, id):
         try:
             course = Course.objects.get(id=id)
-
-            if not course.created_by:
-                return Response({"error": "This course does not have an associated tutor."}, status=status.HTTP_404_NOT_FOUND)
-
-            tutor_account_id = course.created_by.account.id
-
-            return Response(tutor_account_id, status=status.HTTP_200_OK)
-
         except Course.DoesNotExist:
+            logger.warning(f"Course {id} not found")
             return Response({"error": "Course not found."}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not course.created_by:
+            logger.warning(f"Course {id} does not have an associated tutor")
+            return Response({"error": "This course does not have an associated tutor."}, status=status.HTTP_404_NOT_FOUND)
+
+        tutor_account_id = course.created_by.account.id
+        logger.debug(f"Tutor account ID {tutor_account_id} for course {id}")
+        return Response(tutor_account_id, status=status.HTTP_200_OK)
 
 
 
@@ -1303,43 +1413,47 @@ class StartedCourseModulesView(APIView):
     permission_classes = [IsAuthenticatedUser]
 
     def get(self, request):
+        user = request.user
+        course_id = request.GET.get("course_id")
+        
+        if not course_id:
+            logger.warning("course_id is required")
+            return Response({"error":"course_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
         try:
-            user = request.user
-            try:
-                course_id = request.GET.get("course_id")          
-                course = get_object_or_404(Course, id=course_id)        
-                modules = Modules.objects.filter(course=course, is_active=True)          
-            except:
-                return Response({"error":"Modules Not Found"}, status=status.HTTP_404_NOT_FOUND)
-            
-            data = []
+            course = Course.objects.get(id=course_id)
+        except Course.DoesNotExist:
+            logger.warning(f"Course {course_id} not found")
+            return Response({"error":"Course Not Found"}, status=status.HTTP_404_NOT_FOUND)
+        
+        modules = Modules.objects.filter(course=course, is_active=True)
+        logger.debug(f"Found {modules.count()} modules for course {course_id}")
+        
+        data = []
 
-            for module in modules:
-                lessons = Lessons.objects.filter(module=module, is_active=True)
-                total_lessons = lessons.count()
-                completed_lessons = LessonProgress.objects.filter(user=user, lesson__in=lessons, completed=True).count()
-                progress = (completed_lessons / total_lessons) * 100 if total_lessons > 0 else 0
+        for module in modules:
+            lessons = Lessons.objects.filter(module=module, is_active=True)
+            total_lessons = lessons.count()
+            completed_lessons = LessonProgress.objects.filter(user=user, lesson__in=lessons, completed=True).count()
+            progress = (completed_lessons / total_lessons) * 100 if total_lessons > 0 else 0
 
-                # Get or create module progress entry
-                module_progress, created = ModuleProgress.objects.get_or_create(user=user, module=module)
+            # Get or create module progress entry
+            module_progress, created = ModuleProgress.objects.get_or_create(user=user, module=module)
 
-            
-                data.append({
-                    "modules": {
-                        "id": module.id,
-                        "title": module.title,
-                        "description": module.description
-                    },
-                    "started_at":module_progress.started_at,
-                    "status": module_progress.status,
-                    "progress": round(progress, 2),
-                    "completed_on": module_progress.completed_at.date() if module_progress.completed_at else None
-                })
+        
+            data.append({
+                "modules": {
+                    "id": module.id,
+                    "title": module.title,
+                    "description": module.description
+                },
+                "started_at":module_progress.started_at,
+                "status": module_progress.status,
+                "progress": round(progress, 2),
+                "completed_on": module_progress.completed_at.date() if module_progress.completed_at else None
+            })
 
-            return Response(data, status=200)
-        except Exception as e:
-            print(str(e))
-            return Response({"error":str(e)}, status=400)
+        return Response(data, status=200)
 
 
 
@@ -1347,57 +1461,61 @@ class StartModuleView(APIView):
     permission_classes = [IsAuthenticatedUser]
 
     def post(self, request):
+        module_id = request.data.get("module_id")
+        
         try:
-            module_id = request.data.get("module_id")
             module = Modules.objects.get(id=module_id)
-            course = module.course
-            user = request.user
-
-            # Ensure user is enrolled in the course
-            enrollment = UserCourseEnrollment.objects.get(user=user, course=course)
-            if enrollment.status == "pending":
-                enrollment.status = "progress"
-                enrollment.save()
-
-            # Check for existing progress in this course
-            existing_progress = ModuleProgress.objects.filter(
-                user=user,
-                module__course=course,
-                status="progress"
-            ).exclude(module__id=module_id).first()
-
-            if existing_progress:
-                return Response(
-                    {"error": "You already have a module in progress."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            # Get or create ModuleProgress
-            progress_obj, created = ModuleProgress.objects.get_or_create(
-                user=user,
-                module=module
-            )
-
-            if progress_obj.status == "completed":
-                return Response(
-                    {"message": "This module is already completed."},
-                    status=status.HTTP_200_OK
-                )
-
-            progress_obj.status = "progress"
-            progress_obj.started_at = timezone.now()
-            progress_obj.save()
-
-            return Response({"message": "Module started successfully."}, status=status.HTTP_200_OK)
-
         except Modules.DoesNotExist:
+            logger.warning(f"Module {module_id} not found")
             return Response({"error": "Module does not exist."}, status=status.HTTP_404_NOT_FOUND)
 
+        course = module.course
+        user = request.user
+
+        # Ensure user is enrolled in the course
+        try:
+            enrollment = UserCourseEnrollment.objects.get(user=user, course=course)
         except UserCourseEnrollment.DoesNotExist:
+            logger.warning(f"User {user.id} not enrolled in course {course.id}")
             return Response({"error": "You are not enrolled in this course."}, status=status.HTTP_400_BAD_REQUEST)
 
-        except Exception as e:
-            return Response({"error": str(e)}, status=500)
+        if enrollment.status == "pending":
+            enrollment.status = "progress"
+            enrollment.save()
+
+        # Check for existing progress in this course
+        existing_progress = ModuleProgress.objects.filter(
+            user=user,
+            module__course=course,
+            status="progress"
+        ).exclude(module__id=module_id).first()
+
+        if existing_progress:
+            logger.warning(f"User {user.id} already has module {existing_progress.module.id} in progress")
+            return Response(
+                {"error": "You already have a module in progress."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Get or create ModuleProgress
+        progress_obj, created = ModuleProgress.objects.get_or_create(
+            user=user,
+            module=module
+        )
+
+        if progress_obj.status == "completed":
+            logger.info(f"Module {module_id} already completed for user {user.id}")
+            return Response(
+                {"message": "This module is already completed."},
+                status=status.HTTP_200_OK
+            )
+
+        progress_obj.status = "progress"
+        progress_obj.started_at = timezone.now()
+        progress_obj.save()
+
+        logger.info(f"Module {module_id} started for user {user.id}")
+        return Response({"message": "Module started successfully."}, status=status.HTTP_200_OK)
 
 
 
@@ -1408,11 +1526,16 @@ class StartedModuleDetailsView(APIView):
     def get(self, request, id):
         try:
             module = Modules.objects.get(id=id)
-            if not module:
-                return Response({"error":"module Not Found"}, status=status.HTTP_404_NOT_FOUND)
-            return Response(CourseModuleSerializer(module).data, status=status.HTTP_200_OK)
-        except:
-            return Response({"error":"Error While Fetching module Details"}, status=status.HTTP_400_BAD_REQUEST)
+        except Modules.DoesNotExist:
+            logger.warning(f"Module {id} not found")
+            return Response({"error":"module Not Found"}, status=status.HTTP_404_NOT_FOUND)
+        
+        try:
+            serializer = CourseModuleSerializer(module)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.exception(f"Error serializing module {id}")
+            return Response({"error":"Error While Fetching module Details"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 
@@ -1420,51 +1543,54 @@ class StartedModuleLessonsView(APIView):
     permission_classes = [IsAuthenticatedUser]
 
     def get(self, request):
+        user = request.user
+        
+        module_id = request.GET.get("module_id")
+        if not module_id:
+            logger.warning("module_id is required")
+            return Response({"error": "module_id is required"}, status=400)
+
         try:
-            user = request.user
+            module = Modules.objects.get(id=module_id, is_active=True)
+        except Modules.DoesNotExist:
+            logger.warning(f"Module {module_id} not found or inactive")
+            return Response({"error": "Module not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        lessons = Lessons.objects.filter(module=module, is_active=True)
+
+        total_lessons = lessons.count()
+        completed_lessons = LessonProgress.objects.filter(
+            user=user, lesson__in=lessons, completed=True
+        ).count()
+        progress = (completed_lessons / total_lessons) * 100 if total_lessons > 0 else 0
+
+        # Ensure module progress exists
+        ModuleProgress.objects.get_or_create(user=user, module=module)
+
+        data = []
+
+        for lesson in lessons:
+            lesson_progress, _ = LessonProgress.objects.get_or_create(user=user, lesson=lesson)
             
-            module_id = request.GET.get("module_id")
-            if not module_id:
-                return Response({"error": "module_id is required"}, status=400)
-
-            module = get_object_or_404(Modules, id=module_id, is_active=True)
-            lessons = Lessons.objects.filter(module=module, is_active=True)
-
-            total_lessons = lessons.count()
-            completed_lessons = LessonProgress.objects.filter(
-                user=user, lesson__in=lessons, completed=True
-            ).count()
-            progress = (completed_lessons / total_lessons) * 100 if total_lessons > 0 else 0
-
-            # Ensure module progress exists
-            ModuleProgress.objects.get_or_create(user=user, module=module)
-
-            data = []
-
-            for lesson in lessons:
-                lesson_progress, _ = LessonProgress.objects.get_or_create(user=user, lesson=lesson)
+            
+            data.append({
+                "lesson": {
+                    "id": lesson.id,
+                    "title": lesson.title,
+                    "description": lesson.description,
+                    "video": lesson.video,
+                    "documents": lesson.documents,
+                    "thumbnail": lesson.thumbnail
+                },
+                "started_at":lesson_progress.started_at,
+                "status": lesson_progress.status,
+                "progress": progress,
+                "completed_on": lesson_progress.completed_at.date() if lesson_progress.completed_at else None
                 
-                
-                data.append({
-                    "lesson": {
-                        "id": lesson.id,
-                        "title": lesson.title,
-                        "description": lesson.description,
-                        "video": lesson.video,
-                        "documents": lesson.documents,
-                        "thumbnail": lesson.thumbnail
-                    },
-                    "started_at":lesson_progress.started_at,
-                    "status": lesson_progress.status,
-                    "progress": progress,
-                    "completed_on": lesson_progress.completed_at.date() if lesson_progress.completed_at else None
-                    
-                })
+            })
 
-            return Response(data, status=200)
-        except Exception as e:
-            print(str(e))
-            return Response({"error":str(e)}, status=400)
+        logger.debug(f"Returning {len(data)} lessons for module {module_id}")
+        return Response(data, status=200)
     
     
 
@@ -2060,7 +2186,7 @@ class GenerateCertificateView(APIView):
         except Exception as e:
             import traceback
             error_details = traceback.format_exc()
-            print(f"Certificate generation error: {error_details}")
+            logger.error(f"Certificate generation error: {error_details}")
             return HttpResponse(f"Error generating certificate: {str(e)}", status=500)
         
 
@@ -2069,41 +2195,40 @@ class AvailableMeetingsView(APIView):
     permission_classes = [IsAuthenticatedUser]
 
     def get(self, request):
+        enrolled_courses = UserCourseEnrollment.objects.filter(
+            user=request.user,
+            status__in=["progress", "completed"]
+        ).values_list("course_id", flat=True)
+
+        if not enrolled_courses.exists():
+            logger.debug("No course enrolled by the user")
+            return Response([], status=status.HTTP_200_OK)
+
+        
+        tutor_ids = Course.objects.filter(
+            id__in=enrolled_courses
+        ).values_list("created_by", flat=True)
+
+        if not tutor_ids.exists():
+            return Response([], status=status.HTTP_200_OK)
+
+        
+        booked_meeting_ids = MeetingBooking.objects.filter(
+            user=request.user
+        ).values_list("meeting_id", flat=True)
+        
+        meetings = Meetings.objects.filter(
+            is_completed=False,
+            tutor_id__in=tutor_ids
+        ).exclude(id__in=booked_meeting_ids)
+        
         try:
-
-            enrolled_courses = UserCourseEnrollment.objects.filter(
-                user=request.user,
-                status__in=["progress", "completed"]
-            ).values_list("course_id", flat=True)
-
-            if not enrolled_courses.exists():
-                print("no course enrolled by the user")
-                return Response([], status=status.HTTP_200_OK)
-
-            
-            tutor_ids = Course.objects.filter(
-                id__in=enrolled_courses
-            ).values_list("created_by", flat=True)
-
-            if not tutor_ids.exists():
-                return Response([], status=status.HTTP_200_OK)
-
-            
-            booked_meeting_ids = MeetingBooking.objects.filter(
-                user=request.user
-            ).values_list("meeting_id", flat=True)
-            
-            meetings = Meetings.objects.filter(
-                is_completed=False,
-                tutor_id__in=tutor_ids
-            ).exclude(id__in=booked_meeting_ids)
-            
             serializer = SheduledMeetingsSerializer(meetings, many=True)
-            print("✅ Final Meetings Sent to Frontend:", serializer.data)
+            logger.debug(f"Found {len(serializer.data)} available meetings for user {request.user.id}")
             return Response(serializer.data, status=status.HTTP_200_OK)
-
         except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            logger.exception("Error serializing available meetings")
+            return Response({"error": "Error fetching meetings"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 
@@ -2111,16 +2236,17 @@ class BookedMeetingsView(APIView):
     permission_classes = [IsAuthenticatedUser]
     
     def get(self, request):
+        bookings = MeetingBooking.objects.filter(user=request.user, meeting_completed=False).select_related("meeting")
+
+        meetings = [booking.meeting for booking in bookings]
+        logger.debug(f"Found {len(meetings)} booked meetings for user {request.user.id}")
+
         try:
-            bookings = MeetingBooking.objects.filter(user=request.user, meeting_completed=False).select_related("meeting")
-
-            meetings = [booking.meeting for booking in bookings]
-
             serializer = SheduledMeetingsSerializer(meetings, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
-
         except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            logger.exception("Error serializing booked meetings")
+            return Response({"error": "Error fetching meetings"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 
@@ -2130,52 +2256,54 @@ class BookMeetingView(APIView):
     def post(self, request, *args, **kwargs):
         meeting_id = request.data.get("meeting_id")
         if not meeting_id:
+            logger.warning("Meeting ID is required")
             return Response({"error": "Meeting ID is required."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             meeting = Meetings.objects.get(id=meeting_id)
-
-            if meeting.is_completed:
-                return Response({"error": "This meeting is already completed."}, status=status.HTTP_400_BAD_REQUEST)
-
-            if meeting.left <= 0:
-                return Response({"error": "This meeting is fully booked."}, status=status.HTTP_400_BAD_REQUEST)
-
-            if MeetingBooking.objects.filter(meeting=meeting, user=request.user, meeting_completed=False).exists():
-                return Response({"error": "You have already booked this meeting."}, status=status.HTTP_400_BAD_REQUEST)
-
-            # Create booking
-            booking = MeetingBooking.objects.create(meeting=meeting, user=request.user)
-            meeting.left -= 1
-            meeting.save()
-            
-            send_meeting_confimation_email.delay(meeting.id, "scheduled", request.user.id)
-
-            # Calculate reminder time
-            meeting_datetime = make_aware(datetime.combine(meeting.date, meeting.time))
-            reminder_time = meeting_datetime - timedelta(minutes=10)
-            completion_time = meeting_datetime + timedelta(minutes=10)
-
-            # Only schedule if reminder is still in the future
-            if reminder_time > now():
-                send_meeting_invite_email.apply_async(
-                    args=[meeting.id, "reminder", request.user.id],
-                    eta=reminder_time
-                )
-            
-            if completion_time > now():
-                mark_meeting_completed.apply_async(
-                    args=[booking.id],
-                    eta=completion_time
-                )
-
-            return Response({"message": "Meeting booked successfully & reminder scheduled."}, status=status.HTTP_201_CREATED)
-
         except Meetings.DoesNotExist:
+            logger.warning(f"Meeting {meeting_id} not found")
             return Response({"error": "Meeting not found."}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            print("🔥 Booking exception:", e)
-            return Response({"error": "Something went wrong."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        if meeting.is_completed:
+            logger.warning(f"Attempted to book already completed meeting {meeting_id}")
+            return Response({"error": "This meeting is already completed."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if meeting.left <= 0:
+            logger.warning(f"Attempted to book fully booked meeting {meeting_id}")
+            return Response({"error": "This meeting is fully booked."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if MeetingBooking.objects.filter(meeting=meeting, user=request.user, meeting_completed=False).exists():
+            logger.warning(f"User {request.user.id} already booked meeting {meeting_id}")
+            return Response({"error": "You have already booked this meeting."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Create booking
+        booking = MeetingBooking.objects.create(meeting=meeting, user=request.user)
+        meeting.left -= 1
+        meeting.save()
+        
+        send_meeting_confimation_email.delay(meeting.id, "scheduled", request.user.id)
+
+        # Calculate reminder time
+        meeting_datetime = make_aware(datetime.combine(meeting.date, meeting.time))
+        reminder_time = meeting_datetime - timedelta(minutes=10)
+        completion_time = meeting_datetime + timedelta(minutes=10)
+
+        # Only schedule if reminder is still in the future
+        if reminder_time > now():
+            send_meeting_invite_email.apply_async(
+                args=[meeting.id, "reminder", request.user.id],
+                eta=reminder_time
+            )
+        
+        if completion_time > now():
+            mark_meeting_completed.apply_async(
+                args=[booking.id],
+                eta=completion_time
+            )
+
+        logger.info(f"Meeting {meeting_id} booked successfully by user {request.user.id}")
+        return Response({"message": "Meeting booked successfully & reminder scheduled."}, status=status.HTTP_201_CREATED)
         
 
 
@@ -2183,41 +2311,42 @@ class RecentMeetingsView(APIView):
     permission_classes = [IsAuthenticatedUser]
     
     def get(self, request):
+        enrolled_courses = UserCourseEnrollment.objects.filter(
+            user=request.user,
+            status__in=["progress", "completed"]
+        ).values_list("course_id", flat=True)
+
+        if not enrolled_courses.exists():
+            return Response([], status=status.HTTP_200_OK)
+
+        tutor_ids = Course.objects.filter(
+            id__in=enrolled_courses
+        ).values_list("created_by", flat=True)
+
+        if not tutor_ids.exists():
+            return Response([], status=status.HTTP_200_OK)
+
+        booked_meeting_ids = MeetingBooking.objects.filter(
+            user=request.user,
+            meeting_completed = True
+        ).values_list("meeting_id", flat=True)
+
+        if not booked_meeting_ids.exists():
+            return Response([], status=status.HTTP_200_OK)
+
+        meetings = Meetings.objects.filter(
+            is_completed=True,
+            tutor_id__in=tutor_ids,
+            id__in=booked_meeting_ids
+        )
+
         try:
-            enrolled_courses = UserCourseEnrollment.objects.filter(
-                user=request.user,
-                status__in=["progress", "completed"]
-            ).values_list("course_id", flat=True)
-
-            if not enrolled_courses.exists():
-                return Response([], status=status.HTTP_200_OK)
-
-            tutor_ids = Course.objects.filter(
-                id__in=enrolled_courses
-            ).values_list("created_by", flat=True)
-
-            if not tutor_ids.exists():
-                return Response([], status=status.HTTP_200_OK)
-
-            booked_meeting_ids = MeetingBooking.objects.filter(
-                user=request.user,
-                meeting_completed = True
-            ).values_list("meeting_id", flat=True)
-
-            if not booked_meeting_ids.exists():
-                return Response([], status=status.HTTP_200_OK)
-
-            meetings = Meetings.objects.filter(
-                is_completed=True,
-                tutor_id__in=tutor_ids,
-                id__in=booked_meeting_ids
-            )
-
             serializer = SheduledMeetingsSerializer(meetings, many=True)
+            logger.debug(f"Found {len(serializer.data)} recent meetings for user {request.user.id}")
             return Response(serializer.data, status=status.HTTP_200_OK)
-
         except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            logger.exception("Error serializing recent meetings")
+            return Response({"error": "Error fetching meetings"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 

@@ -14,6 +14,11 @@ from django.http import JsonResponse
 import time, base64, hmac, hashlib, json
 from django.views.decorators.csrf import csrf_exempt
 import jwt
+import logging
+
+logger = logging.getLogger("codex")
+
+
 
 class GetOrCreateChatRoomView(APIView):
     permission_classes = [IsAuthenticated]
@@ -35,7 +40,6 @@ class GetOrCreateChatRoomView(APIView):
 
         tutor_profile = TutorDetails.objects.get(account=user2)
 
-        # Check if user1 has purchased the tutor's course
         has_purchased = UserCourseEnrollment.objects.filter(
             user=user1,
             course__created_by=tutor_profile
@@ -44,22 +48,21 @@ class GetOrCreateChatRoomView(APIView):
         if not has_purchased:
             return Response({"error": "Course not purchased."}, status=400)
 
-
-        chat_rooms = ChatRoom.objects.annotate(num_participants=Count('participants')).filter(
-            num_participants=2,
+        existing_room = ChatRoom.objects.filter(
             participants=user1
-        )
+        ).filter(
+            participants=user2
+        ).first()
 
-        for room in chat_rooms:
-            participant_ids = set(room.participants.values_list("id", flat=True))
-            if participant_ids == {user1.id, user2.id}:
-                return Response({"room_id": room.id}, status=200)
+        if existing_room:
+            return Response({"room_id": existing_room.id}, status=200)
 
-        # ✅ Create a new room if not found
         room = ChatRoom.objects.create()
         room.participants.add(user1, user2)
 
         return Response({"room_id": room.id}, status=200)
+
+    
     
 
 class GetRoomParticipantsView(APIView):
@@ -72,67 +75,70 @@ class GetRoomParticipantsView(APIView):
         return Response(serializer.data)
 
 
+
 class RoomSummaryView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, room_id):
         try:
             room = ChatRoom.objects.get(id=room_id)
-            print("room id is this ", room)
-            participants = room.participants.all()
-            current_user = request.user
-
-            # Get the last message in the room
-            last_message = Message.objects.filter(room=room).order_by('-timestamp').first()
-
-            # Prepare participant data with unread count and last message
-            participant_data = []
-            for participant in participants:
-                if participant != current_user:  # Exclude current user
-                    unread_count = Message.objects.filter(
-                        room=room,
-                        is_read=False,
-                        sender=participant
-                    ).exclude(sender=current_user).count()
-                    
-                    participant_data.append({
-                        'id': participant.id,
-                        'first_name': participant.first_name,
-                        'last_name': participant.last_name,
-                        'role': participant.role,
-                        'unread_count': unread_count,
-                        'last_message': {
-                            'content': last_message.content if last_message else '',
-                            'timestamp': last_message.timestamp.strftime('%H:%M') if last_message else '',
-                            'is_read': last_message.is_read if last_message else False
-                        }
-                    })
-
-            return Response({
-                'participants': participant_data,
-                'last_message': {
-                    'content': last_message.content if last_message else '',
-                    'timestamp': last_message.timestamp.strftime('%H:%M') if last_message else '',
-                    'sender_id': last_message.sender.id if last_message else None,
-                    'is_read': last_message.is_read if last_message else False
-                }
-            })
         except ChatRoom.DoesNotExist:
-            print(f"Room {room_id} not found")
+            logger.warning(f"Room {room_id} not found")
             return Response({"error": "Room not found"}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            print(f"Error in RoomSummaryView: {str(e)}")
-            return Response({"error": "Error fetching room summary"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        logger.debug(f"Chat room ID: {room.id}")
+        participants = room.participants.all()
+        current_user = request.user
+
+        # Get the last message in the room
+        last_message = Message.objects.filter(room=room).order_by('-timestamp').first()
+
+        # Prepare participant data with unread count and last message
+        participant_data = []
+        for participant in participants:
+            if participant != current_user:  # Exclude current user
+                unread_count = Message.objects.filter(
+                    room=room,
+                    is_read=False,
+                    sender=participant
+                ).exclude(sender=current_user).count()
+                
+                participant_data.append({
+                    'id': participant.id,
+                    'first_name': participant.first_name,
+                    'last_name': participant.last_name,
+                    'role': participant.role,
+                    'unread_count': unread_count,
+                    'last_message': {
+                        'content': last_message.content if last_message else '',
+                        'timestamp': last_message.timestamp.strftime('%H:%M') if last_message else '',
+                        'is_read': last_message.is_read if last_message else False
+                    }
+                })
+
+        return Response({
+            'participants': participant_data,
+            'last_message': {
+                'content': last_message.content if last_message else '',
+                'timestamp': last_message.timestamp.strftime('%H:%M') if last_message else '',
+                'sender_id': last_message.sender.id if last_message else None,
+                'is_read': last_message.is_read if last_message else False
+            }
+        })
+
 
 
 class ChatRoomListView(APIView):
     def get(self, request):
+        rooms = ChatRoom.objects.filter(participants=request.user)
+        logger.debug(f"Found {rooms.count()} chat rooms for user {request.user.id}")
         try:
-            rooms = ChatRoom.objects.filter(participants=request.user)
             serializer = ChatRoomSerializer(rooms, many=True, context={'request': request})
             return Response(serializer.data)
         except Exception as e:
-            return Response(str(e), status=status.HTTP_400_BAD_REQUEST)
+            logger.exception("Error serializing chat rooms")
+            return Response({"error": "Error fetching chat rooms"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
     
 
 class MessageListView(APIView):

@@ -13,7 +13,6 @@ urlpatterns = [
     path('set_draft/<str:id>/', SetCourseDraftView.as_view(), name='set_draft'),
     path('list_applicaions/', ListApplicationsView.as_view(), name='list_applicaions'),
     path('list_course_request/', CourseRequestsView.as_view(), name='list_course_request'),
-    path('course_request_status/<str:id>/', CourseStatusView.as_view(), name='course_request_status'),
     path('applications/', TutorApplicationView.as_view(), name='applications'),
     path('create_category/', CreateCategoryView.as_view(), name='create_category'),
     path('edit_category/<str:id>/', EditCategoryView.as_view(), name='edit_category'),
