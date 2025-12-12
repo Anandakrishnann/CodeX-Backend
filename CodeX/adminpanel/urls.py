@@ -41,4 +41,8 @@ urlpatterns = [
     path('reports/', ReportsView.as_view(), name='reports'),
     path('tutor/<str:id>/reports/', TutorReportMarkView.as_view(), name='tutor_reports'),
     path('course/<str:id>/reports/', CourseReportMarkView.as_view(), name='course_reports'),
+    path('payout-requests/', PayoutRequestsListView.as_view(), name='payout-requests/'),
+    path('payout-request-details/<str:id>/', PayoutRequestDetailsView.as_view(), name='payout-request-details/'),
+    path('approve-payout-request/<str:id>/', ApprovePayoutRequestView.as_view(), name='approve-payout-request/'),
+    path('reject-payout-request/<str:id>/', RejectPayoutRequestView.as_view(), name='reject-payout-request//'),
 ]   

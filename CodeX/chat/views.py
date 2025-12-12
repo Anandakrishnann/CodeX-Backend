@@ -35,11 +35,11 @@ class GetOrCreateChatRoomView(APIView):
         except Accounts.DoesNotExist:
             return Response({"error": "User not found."}, status=404)
 
-        if not TutorDetails.objects.filter(account=user2).exists():
+        tutor_profile = TutorDetails.objects.filter(account=user2).first()
+        if not tutor_profile:
             return Response({"error": "Not a tutor."}, status=400)
 
-        tutor_profile = TutorDetails.objects.get(account=user2)
-
+        # Check if user purchased any course from this tutor
         has_purchased = UserCourseEnrollment.objects.filter(
             user=user1,
             course__created_by=tutor_profile
@@ -48,21 +48,24 @@ class GetOrCreateChatRoomView(APIView):
         if not has_purchased:
             return Response({"error": "Course not purchased."}, status=400)
 
-        existing_room = ChatRoom.objects.filter(
-            participants=user1
-        ).filter(
-            participants=user2
-        ).first()
+        # FIX: Check existing chat room correctly
+        existing_room = (
+            ChatRoom.objects
+            .filter(participants=user1)
+            .filter(participants=user2)
+            .distinct()
+            .first()
+        )
 
         if existing_room:
             return Response({"room_id": existing_room.id}, status=200)
 
+        # Create new room
         room = ChatRoom.objects.create()
         room.participants.add(user1, user2)
 
         return Response({"room_id": room.id}, status=200)
 
-    
     
 
 class GetRoomParticipantsView(APIView):

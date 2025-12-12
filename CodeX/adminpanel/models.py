@@ -110,3 +110,26 @@ class CourseCategory(models.Model):
 
     def __str__(self):
         return self.name
+
+
+
+class PayoutRequest(models.Model):
+    tutor = models.ForeignKey("Accounts.TutorDetails", on_delete=models.CASCADE)
+    wallet = models.ForeignKey("tutorpanel.Wallet", on_delete=models.CASCADE, null=True, blank=True)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    upi_id = models.CharField(max_length=100)
+    bank_name = models.CharField(max_length=100, null=True, blank=True)
+
+    status = models.CharField(
+        max_length=20,
+        choices=[
+            ("PENDING", "Pending"),
+            ("PAID", "Paid"),
+            ("REJECTED", "Rejected"),
+        ],
+        default="PENDING"
+    )
+
+    requested_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    admin_note = models.TextField(null=True, blank=True)

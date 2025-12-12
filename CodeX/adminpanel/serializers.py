@@ -119,4 +119,16 @@ class CourseReportSerializer(serializers.ModelSerializer):
     class Meta:
         model = CourseReport
         fields = ["id", "course", "course_name", "user", "user_name", "reason", "is_marked", "created_at"]
-   
+
+
+
+class PayoutRequestSerializer(serializers.ModelSerializer):
+    
+    tutor_name = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = PayoutRequest
+        fields = "__all__"
+        
+    def get_tutor_name(self, obj):
+        return obj.tutor.full_name 

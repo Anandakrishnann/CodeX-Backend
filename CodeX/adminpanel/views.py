@@ -23,6 +23,7 @@ from django.db.models.functions import TruncMonth, TruncYear, ExtractYear
 import traceback
 from Accounts.models import *
 from tutorpanel.models import *
+from tutorpanel.serializers import WalletTransactionSerializer
 from notifications.utils import send_notification
 from Accounts.tasks import send_report_marked_email
 from django.core.mail import send_mail
@@ -524,6 +525,8 @@ class AcceptApplicationView(APIView):
                 tutor.verification_video = application.verification_video
                 tutor.status = "verified"
                 tutor.save()
+                
+            
 
             send_notification(user, "Your Application accepted by admin. Complete subscription to become a tutor.")
             
@@ -1027,7 +1030,7 @@ class RejectCourseRequestView(APIView):
             subject = "⚠️ Course Status Update — Course Rejected"
 
             message = (
-                f"Hello {user.first_name},\n\n"
+                f"Hello {user.first_name},\n\n" 
                 f"Your course \"{course.title}\" has been reviewed and unfortunately it has been rejected.\n\n"
                 f"Reason: {reason}\n\n"
                 f"Before resubmitting, please make sure your course meets the platform guidelines, "
@@ -1540,3 +1543,179 @@ class CourseReportMarkView(APIView):
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+class PayoutRequestsListView(APIView):
+    def get(self, request):
+        
+        try:
+            payouts = PayoutRequest.objects.all()
+            logger.debug(f"Fetched {payouts.count()} payout requests")
+
+            payout_serializer = PayoutRequestSerializer(payouts, many=True)
+            
+            response_data = {
+                "payout_requests": payout_serializer.data,
+            }
+
+            logger.info("Payout request list returned successfully")
+            return Response(response_data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(
+                f"Error in PayoutRequestListView: {str(e)}",
+                exc_info=True
+            )
+            return Response({"error": "Something went wrong"}, status=500)
+
+
+
+class PayoutRequestDetailsView(APIView):
+    def get(self, request, id):
+        try:
+            logger.info(f"PayoutRequestDetailsView GET requested id: {id}")
+
+            payout_request = get_object_or_404(PayoutRequest, id=id)
+
+            wallet = get_object_or_404(Wallet, tutor=payout_request.tutor)
+
+            logger.info(f"Wallet fetched for tutor: {wallet.tutor.id}")
+
+            transactions = WalletTransaction.objects.filter(wallet=wallet)
+            logger.debug(f"Fetched {transactions.count()} transactions for wallet {wallet.id}")
+
+            total_earned = (
+                WalletTransaction.objects.filter(wallet=wallet).aggregate(total=Sum("amount"))["total"] or 0
+            )
+
+            pr_list = PayoutRequest.objects.filter(wallet=wallet)
+
+            tx_serializer = WalletTransactionSerializer(transactions, many=True)
+            pr_serializer = PayoutRequestSerializer(pr_list, many=True)
+
+            response_data = {
+                "tutor_data": {
+                    "tutor_name": wallet.tutor.full_name,
+                    "balance": wallet.balance,
+                    "total_earned": total_earned,
+                    "total_redeemed": wallet.total_withdrawn,
+                },
+                "transactions": tx_serializer.data,
+                "payout_requests": pr_serializer.data
+            }
+
+            logger.info(f"PayoutRequestDetails returned successfully for tutor {wallet.tutor.id}")
+            return Response(response_data)
+
+        except Exception as e:
+            logger.error(f"Error in PayoutRequestDetailsView for id={id}: {str(e)}", exc_info=True)
+            return Response({"error": "Something went wrong"}, status=500)
+
+
+
+
+class ApprovePayoutRequestView(APIView):
+    def post(self, request, id):
+        try:
+            admin_note = request.data.get("admin_note")
+
+            if not admin_note:
+                logger.error("Admin Note is required")
+                return Response({"error": "Admin Note Required"}, status=400)
+
+            payout_request = get_object_or_404(PayoutRequest, id=id)
+            wallet = Wallet.objects.get(tutor=payout_request.tutor)
+
+            logger.info(f"Payout request: {payout_request.id}")
+
+            payout_request.status = "PAID"
+            payout_request.admin_note = admin_note
+            payout_request.processed_at = now()
+            payout_request.save()
+
+            wallet.total_withdrawn += payout_request.amount
+            wallet.save()
+
+
+            subject = "🎉 Payout Request Approved – Amount Will Be Credited Soon" 
+            
+            message = ( 
+                f"Hello {payout_request.tutor.full_name},\n\n" 
+                f"Good news! Your payout request has been approved by our finance team.\n\n" 
+                f"Payout Summary:\n" 
+                f"- Amount: ${payout_request.amount}\n" 
+                f"- Bank: {payout_request.bank_name}\n" 
+                f"- UPI ID: {payout_request.upi_id}\n\n" 
+                f"The amount will be credited to your account within the next 24 hours.\n\n" 
+                f"If you have any questions, feel free to contact us at codexlearning@gmail.com.\n\n" 
+                f"Thank you for being a valued tutor at CodeX Learning.\n\n" 
+                f"— CodeX Learning Team" 
+                )
+
+            send_mail(subject, message, os.getenv("EMAIL_HOST_USER"), [payout_request.tutor.account.email])
+            logger.info(f"Payout approval email sended")
+            
+            send_notification(
+            payout_request.tutor.account,
+            "Your payout request has been approved. Please check your email."
+            )
+
+            return Response({"message": "Payout Request Approved Successfully"}, status=200)
+
+        except Exception as e:
+            logger.error(f"Error while approving payout request {id}: {str(e)}", exc_info=True)
+            return Response({"error": "Something went wrong"}, status=500)
+
+
+
+
+class RejectPayoutRequestView(APIView):
+    def post(self, request, id):
+        try:
+            admin_note = request.data.get("admin_note")
+
+            if not admin_note:
+                logger.error("Admin Note is required")
+                return Response({"error": "Admin Note Required"}, status=400)
+
+            payout_request = get_object_or_404(PayoutRequest, id=id)
+
+            logger.info(f"Admin Note: {admin_note}")
+            logger.info(f"Payout request: {payout_request.id}")
+
+            payout_request.status = "REJECTED"
+            payout_request.admin_note = admin_note
+            payout_request.processed_at = now()
+
+            payout_request.wallet.balance += payout_request.amount
+            payout_request.save()
+
+            send_notification(
+                payout_request.tutor.account,
+                "Your payout request has been rejected. Please check your email."
+            )
+
+            subject = "❗ Payout Request Rejected – Action Needed" 
+            
+            message = ( 
+                f"Hello {payout_request.tutor.full_name},\n\n" 
+                f"We regret to inform you that your recent payout request could not be processed and has been rejected.\n\n" 
+                f"Payout Summary:\n" f"- Amount: ${payout_request.amount}\n" f"- Bank: {payout_request.bank_name}\n" 
+                f"- UPI ID: {payout_request.upi_id}\n\n" f"Reason for Rejection:\n" 
+                f"- {admin_note}\n\n" 
+                f"This usually happens due to incorrect bank details, invalid UPI ID, or mismatched account information.\n\n" 
+                f"Please review your payout details and submit a new request.\n" 
+                f"If you believe this is a mistake or need assistance, feel free to reach out to us at codexlearning@gmail.com.\n\n" 
+                f"Thank you for your patience.\n\n" 
+                f"— CodeX Learning Team" 
+                )
+
+            send_mail(subject, message, os.getenv("EMAIL_HOST_USER"), [payout_request.tutor.account.email])
+            logger.info(f"Payout reject email sent to {payout_request.tutor.account.email}")
+
+            return Response({"message": "Payout Request Rejected Successfully"}, status=200)
+
+        except Exception as e:
+            logger.error(f"Error while rejecting payout request {id}: {str(e)}", exc_info=True)
+            return Response({"error": "Something went wrong"}, status=500)

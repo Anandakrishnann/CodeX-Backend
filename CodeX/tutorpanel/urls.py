@@ -33,5 +33,8 @@ urlpatterns = [
     path('sheduled-meetings/', SheduledMeetings.as_view(), name='sheduled-meetings/'),
     path('recent-meetings/', RecentMeetingsView.as_view(), name='recent-meetings/'),
     path('get_levels/', get_course_levels, name='get_levels'),
-    path('course-monthly-trends/<str:id>/', CourseMonthlyTrendsView.as_view(), name="course-monthly-trends")
+    path('course-monthly-trends/<str:id>/', CourseMonthlyTrendsView.as_view(), name="course-monthly-trends"),
+    path('wallet-dashboard/', WalletDashboardView.as_view(), name='wallet-dashboard/'),
+    path('payout-requests/', PayoutRequestListView.as_view(), name='payout-requests/'),
+    path('request_payout/', PayoutRequestView.as_view(), name='request_payout/'),
 ]

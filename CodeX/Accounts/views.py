@@ -48,6 +48,7 @@ from .permissions import IsAuthenticatedUser
 from .tasks import *
 from django.core.cache import cache
 import hashlib, random
+from decimal import Decimal
 import os
 
 logger = logging.getLogger("codex")
@@ -154,7 +155,7 @@ class OTPVerificationView(APIView):
                 logger.warning(f"Invalid OTP for {email}. Attempts: {data['attempts']}")
                 return Response({"error": "Invalid OTP"}, status=400)
 
-            # OTP correct → create user
+            # OTP correct --> create user
             user_data = data["user_data"]
             password = user_data.pop("password")
 
@@ -233,7 +234,6 @@ class ResendOTPView(APIView):
         except Exception:
             logger.exception("Unexpected error during resend OTP")
             return Response({"error": "Something went wrong"}, status=500)
-
 
 
 
@@ -937,8 +937,10 @@ class CheckCourseTutor(APIView):
     
     def get(self, request, course_id):
         try:
-            
-            tutor = TutorDetails.objects.get(account=request.user)
+            try:
+                tutor = TutorDetails.objects.get(account=request.user)
+            except:
+                return Response({"is_tutor":False}, status=status.HTTP_200_OK)
         
             is_tutor = Course.objects.filter(created_by=tutor, id=course_id).exists()
             
@@ -1223,80 +1225,156 @@ class PayPalSuccessView(APIView):
 
     def post(self, request):
         try:
+            logger.info("PayPalSuccessView triggered")
 
             user_email = request.data.get("user_email")
             course_id = request.data.get("course_id")
             order_id = request.data.get("orderID")
 
-            # Validate inputs
-            if not user_email or not course_id or not order_id:
-                return Response({
-                    "error": "Missing required fields: user_email, course_id, or orderID"
-                }, status=status.HTTP_400_BAD_REQUEST)
+            logger.info(f"Incoming Payload --> user_email={user_email}, course_id={course_id}, order_id={order_id}")
 
-            # Authenticate with PayPal
+            if not user_email or not course_id or not order_id:
+                logger.warning("Missing required fields in PayPalSuccessView request")
+                return Response(
+                    {"error": "Missing required fields"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+
+            logger.info("Attempting PayPal OAuth authentication")
+
             auth_response = requests.post(
                 settings.PAYPAL_OAUTH_URL,
-                headers={'Accept': 'application/json'},
-                data={'grant_type': 'client_credentials'},
-                auth=(settings.PAYPAL_CLIENT_ID, settings.PAYPAL_SECRET_KEY)
+                data={"grant_type": "client_credentials"},
+                auth=(settings.PAYPAL_CLIENT_ID, settings.PAYPAL_SECRET_KEY),
             )
 
+            logger.info(f"PayPal Auth Response Code: {auth_response.status_code}")
+
             if auth_response.status_code != 200:
-                return Response({"error": "Failed to authenticate with PayPal"}, status=400)
+                logger.error(f"PayPal authentication failed: {auth_response.text}")
+                return Response({"error": "PayPal authentication failed"}, status=400)
 
             access_token = auth_response.json().get("access_token")
 
-            # Verify order
+
+            logger.info(f"Fetching PayPal order details for order_id={order_id}")
+
             order_response = requests.get(
                 f"{settings.PAYPAL_ORDER_URL}{order_id}",
                 headers={
-                    "Content-Type": "application/json",
                     "Authorization": f"Bearer {access_token}",
-                }
+                    "Content-Type": "application/json",
+                },
             )
+
+            logger.info(f"Order Verification Status Code: {order_response.status_code}")
 
             if order_response.status_code != 200:
-                return Response({"error": "Invalid PayPal order ID"}, status=400)
+                logger.error(f"Failed to fetch PayPal order details: {order_response.text}")
+                return Response({"error": "Failed to fetch order details"}, status=400)
 
             order_data = order_response.json()
+            logger.debug(f"PayPal Order Response JSON: {order_data}")
+
             if order_data.get("status") != "COMPLETED":
+                logger.warning(f"Order {order_id} is not completed. Status: {order_data.get('status')}")
                 return Response({"error": "Payment not completed"}, status=400)
 
-            # Fetch user
-            try:
-                user = Accounts.objects.get(email=user_email)
-            except Accounts.DoesNotExist:
-                return Response({"error": "User does not exist"}, status=404)
+            purchase_unit = order_data["purchase_units"][0]
 
-            # Fetch course
-            try:
-                course = Course.objects.get(id=course_id)
-            except Course.DoesNotExist:
-                return Response({"error": "Course does not exist"}, status=404)
 
-            # Business validations
-            if user.isblocked:
-                return Response({"error": "User account has been blocked. Contact support."}, status=403)
+            paypal_reference_id = purchase_unit.get("reference_id")
+            paypal_custom_id = purchase_unit.get("custom_id")
+            paypal_amount = float(purchase_unit["amount"]["value"])
 
-            if not course.is_active:
-                return Response({"error": "Course has been blocked. Cannot complete payment."}, status=400)
-
-            # Enroll user
-            course_enrolled = UserCourseEnrollment.objects.create(
-                user=user,
-                course=course,
-                payment_id=order_id
+            logger.info(
+                f"Extracted PayPal Metadata --> reference_id={paypal_reference_id}, "
+                f"custom_id={paypal_custom_id}, amount={paypal_amount}"
             )
 
-            course.users += 1
-            course.save()
+            try:
+                user = Accounts.objects.get(email=user_email)
+                logger.info(f"User validated: {user.email}")
+            except Accounts.DoesNotExist:
+                logger.error(f"User does not exist: {user_email}")
+                return Response({"error": "User does not exist"}, status=404)
 
-            return Response({"message": "Course purchased successfully. Go to dashboard to check it out."}, status=200)
+            try:
+                course = Course.objects.get(id=course_id)
+                logger.info(f"Course validated: {course.title}")
+            except Course.DoesNotExist:
+                logger.error(f"Course does not exist: {course_id}")
+                return Response({"error": "Course does not exist"}, status=404)
+
+            if user.isblocked:
+                logger.warning(f"Blocked user attempted purchase: {user.email}")
+                return Response({"error": "User account is blocked"}, status=403)
+
+            if not course.is_active:
+                logger.warning(f"Inactive course purchase attempt: {course.title}")
+                return Response({"error": "Course is inactive"}, status=400)
+
+
+            logger.info("Performing security validation checks")
+
+            if paypal_reference_id != f"COURSE_{course_id}":
+                logger.error("Reference ID mismatch --> Possible tampering attempt")
+                return Response(
+                    {"error": "Payment does not match this course (ref mismatch)"},
+                    status=400,
+                )
+
+            if str(paypal_custom_id) != str(course_id):
+                logger.error("Custom ID mismatch --> Possible fraudulent payload")
+                return Response(
+                    {"error": "Invalid purchase attempt (custom_id mismatch)"},
+                    status=400,
+                )
+
+            if paypal_amount != float(course.price):
+                logger.error(f"Amount mismatch --> PayPal: {paypal_amount}, Course: {course.price}")
+                return Response({"error": "Payment amount mismatch"}, status=400)
+
+            if UserCourseEnrollment.objects.filter(user=user, course=course).exists():
+                logger.info(f"Duplicate purchase attempt — user already enrolled: {user.email}")
+                return Response({"message": "Course already purchased"}, status=200)
+
+
+            UserCourseEnrollment.objects.create(
+                user=user,
+                course=course,
+                payment_id=order_id,
+            )
+
+            tutor_amount = course.price * Decimal("0.70")
+
+            wallet, created = Wallet.objects.get_or_create(
+                tutor=course.created_by,
+                defaults={"balance": tutor_amount}
+            )
+
+
+            if not created:
+                wallet.balance += tutor_amount
+                wallet.save()
+
+            WalletTransaction.objects.create(
+                wallet=wallet,
+                amount=tutor_amount,
+                description=f"{course.title} purchased by {user.first_name} {user.last_name}"
+            )
+
+            logger.info(f"Course enrollment successful --> user={user.email}, course={course.title}")
+
+            return Response(
+                {"message": "Course purchased successfully!"},
+                status=200,
+            )
 
         except Exception as e:
-            logger.error(f"Unhandled error: {str(e)}")
-            return Response({"error": str(e)}, status=400)
+            logger.exception(f"Unhandled PayPal Success Error: {str(e)}")
+            return Response({"error": "Internal Server Error"}, status=500)
 
 
 
@@ -1403,7 +1481,7 @@ class CourseTutorView(APIView):
             logger.warning(f"Course {id} does not have an associated tutor")
             return Response({"error": "This course does not have an associated tutor."}, status=status.HTTP_404_NOT_FOUND)
 
-        tutor_account_id = course.created_by.account.id
+        tutor_account_id = course.created_by.id
         logger.debug(f"Tutor account ID {tutor_account_id} for course {id}")
         return Response(tutor_account_id, status=status.HTTP_200_OK)
 

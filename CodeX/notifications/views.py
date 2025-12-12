@@ -20,6 +20,7 @@ class NotificationListView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
+
 class NotificationMarkReadView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -29,6 +30,7 @@ class NotificationMarkReadView(APIView):
             notification.is_read = True
             notification.save()
         return Response({"detail": "Notification marked as read"}, status=status.HTTP_200_OK)
+
 
 
 class NotificationMarkAllReadView(APIView):

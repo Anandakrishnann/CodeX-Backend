@@ -7,6 +7,7 @@ from .models import *
 from rest_framework.permissions import IsAuthenticated
 from django.http import JsonResponse
 from Accounts.models import *
+from adminpanel.serializers import PayoutRequestSerializer
 from .serializers import *
 from .permissions import IsSubscribed
 import cloudinary.uploader
@@ -19,8 +20,10 @@ from datetime import datetime, timedelta
 from django.conf import settings
 from django.db.models import Sum, Count, F, Avg
 from django.db.models.functions import TruncMonth, TruncYear
-import traceback
+import re
 from notifications.utils import send_notification
+from django.core.mail import send_mail
+from decimal import Decimal, InvalidOperation
 import logging
 
 logger = logging.getLogger("codex")
@@ -912,8 +915,6 @@ class SheduleMeetingView(APIView):
 
 
 
-
-
 class EditMeetingView(APIView):
     permission_classes = [IsSubscribed]
 
@@ -1192,3 +1193,178 @@ class CourseMonthlyTrendsView(APIView):
 
         logger.debug(f"Course monthly trends calculated for course {id}")
         return Response(data, status=status.HTTP_200_OK)
+    
+    
+    
+class WalletDashboardView(APIView):
+    permission_classes = [IsSubscribed]
+
+    def get(self, request):
+        try:
+            logger.info(f"WalletDashboardView GET requested by user: {request.user.id}")
+            tutor = TutorDetails.objects.get(account=request.user)
+
+            wallet, created = Wallet.objects.get_or_create(tutor=tutor)
+            if created:
+                logger.info(f"New wallet created for tutor: {tutor.id}")
+            else:
+                logger.info(f"Wallet fetched for tutor: {tutor.id}")
+
+            transactions = WalletTransaction.objects.filter(wallet=wallet)
+            logger.debug(f"Fetched {transactions.count()} transactions for wallet {wallet.id}")
+
+            total_earned = (
+                WalletTransaction.objects.filter(wallet=wallet).aggregate(total=Sum("amount"))["total"] or 0
+            )
+            logger.debug(f"Total earned for tutor {tutor.id}: {total_earned}")
+
+            tx_serializer = WalletTransactionSerializer(transactions, many=True)
+
+            response_data = {
+                "balance": wallet.balance,
+                "total_earned": total_earned,
+                "total_redeemed": wallet.total_withdrawn,
+                "transactions": tx_serializer.data,
+            }
+
+            logger.info(f"Wallet dashboard returned successfully for tutor {tutor.id}")
+            return Response(response_data)
+
+        except Exception as e:
+            logger.error(
+                f"Error in WalletDashboardView for user {tutor.id}: {str(e)}",
+                exc_info=True
+            )
+            return Response({"error": "Something went wrong"}, status=500)
+
+
+
+class PayoutRequestListView(APIView):
+    permission_classes = [IsSubscribed]
+
+    def get(self, request):
+        try:
+            logger.info(f"PayoutRequestListView GET requested by user: {request.user.id}")
+            tutor = TutorDetails.objects.get(account=request.user)
+
+            wallet, created = Wallet.objects.get_or_create(tutor=tutor)
+            if created:
+                logger.info(f"New wallet created for tutor: {tutor.id}")
+            else:
+                logger.info(f"Wallet fetched for tutor: {tutor.id}")
+
+            payouts = PayoutRequest.objects.filter(wallet=wallet)
+            logger.debug(f"Fetched {payouts.count()} payout requests for wallet {wallet.id}")
+
+            payout_serializer = PayoutRequestSerializer(payouts, many=True)
+            
+            response_data = {
+                "payout_requests": payout_serializer.data,
+            }
+
+            logger.info(f"Payout request list returned successfully for tutor {tutor.id}")
+            return Response(response_data)
+
+        except Exception as e:
+            logger.error(
+                f"Error in PayoutRequestListView for user {tutor.id}: {str(e)}",
+                exc_info=True
+            )
+            return Response({"error": "Something went wrong"}, status=500)
+
+
+
+class PayoutRequestView(APIView):
+    permission_classes = [IsSubscribed]
+
+    def post(self, request):
+        try:
+            logger.info(f"PayoutRequestView POST requested by user: {request.user.id}")
+
+            account = Accounts.objects.get(id=request.user.id)
+            tutor = TutorDetails.objects.get(account=account)
+            wallet, _ = Wallet.objects.get_or_create(tutor=tutor)
+
+            logger.info(f"Wallet fetched for tutor {tutor.id}")
+
+            upi_id = request.data.get("upi_id")
+            bank_name = request.data.get("bank_name")
+            amount = request.data.get("amount")
+
+            logger.debug(f"Received payout request data - UPI: {upi_id}, Bank: {bank_name}, Amount: {amount}")
+
+            UPI_REGEX = r"^[\w\.-]{2,256}@[A-Za-z]{2,64}$"
+
+            if not upi_id or not re.match(UPI_REGEX, upi_id):
+                logger.warning(f"Invalid UPI ID submitted by user {account.id}")
+                return Response({"detail": "Invalid UPI ID format."}, status=status.HTTP_400_BAD_REQUEST)
+
+            if amount is None or str(amount).strip() == "":
+                logger.warning(f"Amount missing in payout request by user {account.id}")
+                return Response({"detail": "Amount is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+            try:
+                amount_decimal = Decimal(str(amount))
+            except (InvalidOperation, ValueError):
+                logger.warning(f"Invalid amount submitted by user {account.id}")
+                return Response({"detail": "Amount must be a valid number."}, status=status.HTTP_400_BAD_REQUEST)
+
+            if amount_decimal <= 0:
+                logger.warning(f"Non-positive amount submitted by user {account.id}")
+                return Response({"detail": "Amount must be greater than 0."}, status=status.HTTP_400_BAD_REQUEST)
+
+            MIN_PAYOUT = Decimal("10")
+            if amount_decimal < MIN_PAYOUT:
+                logger.warning(f"Payout below minimum amount attempted by user {account.id}: {amount_decimal}")
+                return Response({"detail": "Minimum withdrawal amount is $10."}, status=status.HTTP_400_BAD_REQUEST)
+
+            if amount_decimal > wallet.balance:
+                logger.warning(f"Insufficient balance for payout - User {account.id}")
+                return Response({"detail": "Insufficient wallet balance."}, status=status.HTTP_400_BAD_REQUEST)
+
+            if not bank_name:
+                logger.warning(f"Bank name missing in payout request by user {account.id}")
+                return Response({"detail": "Bank name is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+            payout = PayoutRequest.objects.create(
+                tutor=tutor,
+                wallet=wallet,
+                amount=amount_decimal,
+                upi_id=upi_id,
+                bank_name=bank_name
+            )
+
+            wallet.balance -= amount_decimal
+            wallet.save()
+
+            logger.info(f"PayoutRequest created successfully for tutor {tutor.id}")
+
+            send_notification(account, "Your payout request has been submitted successfully")
+
+            subject = "✅ Confirmation: Payout Request Successfully Submitted"
+
+            message = (
+                f"Hello {account.first_name},\n\n"
+                f"We have received your payout request successfully. Our finance team will review the details and begin processing it shortly.\n\n"
+                f"Payout Summary:\n\n"
+                f"Amount: ${amount_decimal}\n\n"
+                f"Bank: {bank_name}\n\n"
+                f"UPI ID: {upi_id}\n\n"
+                f"The review and processing typically take 2–3 business days. We will notify you as soon as there is an update regarding the status of your request. "
+                f"If you have any questions, feel free to reach out to our support team at any time in codexlearning@gmail.com.\n\n"
+                f"Thank you for using CodeX Learning.\n\n"
+                f"— CodeX Learning Team"
+            )
+
+            send_mail(subject, message, os.getenv("EMAIL_HOST_USER"), [account.email])
+
+            logger.info(f"Payout confirmation email sent to {account.email}")
+
+            return Response({"message": "Payout request created successfully"}, status=200)
+
+        except Exception as e:
+            logger.error(f"PayoutRequestView Error for user {request.user.id}: {str(e)}", exc_info=True)
+            return Response(
+                {"detail": "Something went wrong."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

@@ -204,3 +204,10 @@ class SheduledMeetingsSerializer(serializers.ModelSerializer):
 
     def get_tutor_name(self, obj):
         return obj.tutor.full_name if obj.tutor else None
+
+
+
+class WalletTransactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WalletTransaction
+        fields = "__all__"
