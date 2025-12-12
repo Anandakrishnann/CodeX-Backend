@@ -62,21 +62,18 @@ It powers the entire e-learning platform — managing authentication, tutor appl
 ```bash
 git clone https://github.com/your-username/codexlearning-backend.git
 cd codexlearning-backend
+
 2️⃣ Create Virtual Environment
-bash
-Copy code
 python -m venv venv
 source venv/bin/activate     # macOS/Linux
 venv\Scripts\activate        # Windows
+
 3️⃣ Install Dependencies
-bash
-Copy code
 pip install -r requirements.txt
+
 4️⃣ Configure Environment Variables
 Create a .env file in your Backend/CodeX folder:
 
-ini
-Copy code
 # ===============================
 # DJANGO SETTINGS
 # ===============================
@@ -117,24 +114,19 @@ ZEGO_SERVER_SECRET=your_zegocloud_secret
 # REDIS & CELERY
 # ===============================
 REDIS_URL=redis://localhost:6379
+
 5️⃣ Run Database Migrations
-bash
-Copy code
 python manage.py makemigrations
 python manage.py migrate
+
 6️⃣ Create Admin User
-bash
-Copy code
 python manage.py createsuperuser
+
 7️⃣ Start Server
-bash
-Copy code
 python manage.py runserver
 Your API will be live on 👉 http://127.0.0.1:8000/
 
 🧱 Folder Structure
-bash
-Copy code
 Backend/
 └── CodeX/
     ├── Accounts/
