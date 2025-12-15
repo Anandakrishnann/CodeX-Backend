@@ -112,6 +112,19 @@ class StripeWebhookView(APIView):
                         'stripe_subscription_id': subscription_id,
                     }
                 )
+                
+                wallet, _ = PlatformWallet.objects.get_or_create(pk=1)
+
+                wallet.total_revenue += plan.price
+                wallet.save()
+                
+                PlatformWalletTransaction.objects.create(
+                    wallet=wallet,
+                    amount=plan.price,
+                    transaction_type="SUBSCRIPTION",
+                    user=account,
+                    tutor=tutor,
+                )
 
                 print(f"✅ Subscription {'created' if created else 'updated'} for {email} | tutor_id={tutor_id}")
                 print(f"✅ Stored values: plan={plan.id}, is_active={sub_obj.is_active}, expires_on={sub_obj.expires_on}, stripe_sub={sub_obj.stripe_subscription_id}")

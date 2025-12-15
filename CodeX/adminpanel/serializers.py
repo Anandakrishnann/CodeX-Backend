@@ -122,6 +122,28 @@ class CourseReportSerializer(serializers.ModelSerializer):
 
 
 
+class PlatformWalletTransactionSerializer(serializers.ModelSerializer):
+    user_name = serializers.SerializerMethodField()
+    tutor_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PlatformWalletTransaction
+        fields = "__all__"
+
+    # Return user's full name
+    def get_user_name(self, obj):
+        if obj.user:
+            return f"{obj.user.first_name} {obj.user.last_name}".strip()
+        return None
+
+    # Return tutor's name
+    def get_tutor_name(self, obj):
+        if obj.tutor:
+            return f"{obj.tutor.full_name}".strip()
+        return None
+
+
+
 class PayoutRequestSerializer(serializers.ModelSerializer):
     
     tutor_name = serializers.SerializerMethodField()

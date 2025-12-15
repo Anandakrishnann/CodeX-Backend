@@ -122,6 +122,7 @@ class TutorSubscription(models.Model):
     tutor = models.OneToOneField(TutorDetails, on_delete=models.CASCADE)
     plan = models.ForeignKey(Plan, on_delete=models.SET_NULL, null=True)
     subscribed_on = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
     expires_on = models.DateTimeField()
     is_active = models.BooleanField(default=True)
     

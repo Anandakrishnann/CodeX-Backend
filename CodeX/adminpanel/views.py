@@ -20,6 +20,7 @@ import cloudinary.uploader
 import stripe # type: ignore
 from django.db.models import Sum, Count, F, Avg
 from django.db.models.functions import TruncMonth, TruncYear, ExtractYear
+from itertools import chain
 import traceback
 from Accounts.models import *
 from tutorpanel.models import *
@@ -40,18 +41,16 @@ class AdminDashboardView(APIView):
 
         # --- Total counts ---
         total_users = Accounts.objects.filter(role="user").count()
-        logger.debug(f"Total Users: {total_users}")
 
-        total_tutors = Accounts.objects.filter(role="tutor").count()
-        logger.debug(f"Total Tutors: {total_tutors}")
+        total_tutors = TutorSubscription.objects.filter(is_active=True).select_related(
+                "tutor", "tutor__account"
+            ).count()
 
         total_courses = Course.objects.count()
-        logger.debug(f"Total Courses: {total_courses}")
+        
+        wallet, _ = PlatformWallet.objects.get_or_create(pk=1)
 
-        total_revenue = (
-            UserCourseEnrollment.objects.aggregate(total=Sum("course__price"))["total"] or 0
-        )
-        logger.debug(f"Total Revenue: {total_revenue:.2f}")
+        total_revenue = wallet.total_revenue
 
         # --- Monthly revenue trend ---
         logger.debug("Calculating monthly revenue trend...")
@@ -62,13 +61,11 @@ class AdminDashboardView(APIView):
             .annotate(revenue=Sum("course__price"))
             .order_by("month")
         )
-        logger.debug(f"Monthly Revenue Raw Data: {list(monthly_revenue_trend)}")
 
         monthly_revenue_trend = [
             {"month": m["month"].strftime("%b"), "revenue": float(m["revenue"] or 0)}
             for m in monthly_revenue_trend if m["month"]
         ]
-        logger.debug(f"Monthly Revenue Parsed: {monthly_revenue_trend}")
 
         # --- Yearly revenue trend ---
         logger.debug("Calculating yearly revenue trend...")
@@ -79,7 +76,6 @@ class AdminDashboardView(APIView):
             .annotate(revenue=Sum("course__price"))
             .order_by("year")
         )
-        logger.debug(f"Yearly Revenue Trend: {list(yearly_revenue_trend)}")
 
         # --- User growth trend ---
         logger.debug("Calculating user growth trend...")
@@ -90,13 +86,11 @@ class AdminDashboardView(APIView):
             .annotate(count=Count("id"))
             .order_by("month")
         )
-        logger.debug(f"User Growth Raw Data: {list(user_growth)}")
 
         user_growth = [
             {"month": u["month"].strftime("%b"), "count": u["count"]}
             for u in user_growth if u["month"]
         ]
-        logger.debug(f"User Growth Parsed: {user_growth}")
 
         # --- Top tutors ---
         logger.debug("Fetching top tutors...")
@@ -106,7 +100,6 @@ class AdminDashboardView(APIView):
             .annotate(earnings=Sum("course__price"))
             .order_by("-earnings")[:5]
         )
-        logger.debug(f"Top Tutors Raw: {list(top_tutors)}")
 
         top_tutors = [
             {
@@ -115,8 +108,6 @@ class AdminDashboardView(APIView):
             }
             for t in top_tutors
         ]
-        logger.debug(f"Top Tutors Parsed: {top_tutors}")
-
 
         # --- Top courses ---
         logger.debug("Fetching top courses...")
@@ -126,33 +117,66 @@ class AdminDashboardView(APIView):
             .annotate(enrollments=Count("id"))
             .order_by("-enrollments")[:5]
         )
-        logger.debug(f"Top Courses Raw: {list(top_courses)}")
 
         top_courses = [
             {"name": c["course__title"] or "Untitled", "enrollments": c["enrollments"]}
             for c in top_courses
         ]
-        logger.debug(f"Top Courses Parsed: {top_courses}")
 
         # --- Recent transactions ---
         logger.debug("Fetching recent transactions...")
-        recent_transactions = (
+        course_transactions = (
             UserCourseEnrollment.objects
             .select_related("user", "course")
-            .order_by("-enrolled_on")[:5]
+            .values(
+                "user__first_name",
+                "user__last_name",
+                "course__title",
+                "course__price",
+                "enrolled_on"
+            )
         )
-        logger.debug(f"Recent Transactions Raw Count: {recent_transactions.count()}")
 
-        transactions_data = [
+        subscription_transactions = (
+            TutorSubscription.objects
+            .select_related("tutor", "plan")
+            .values(
+                "tutor__account__first_name",
+                "tutor__account__last_name",
+                "plan__name",
+                "plan__price",
+                "created_at"
+            )
+        )
+
+        course_data = [
             {
-                "user": f"{tx.user.first_name} {tx.user.last_name}".strip(),
-                "course": tx.course.title,
-                "amount": float(tx.course.price or 0),
-                "date": tx.enrolled_on.strftime("%b %d, %Y"),
+                "type": "COURSE_PURCHASE",
+                "user": f"{tx['user__first_name']} {tx['user__last_name']}".strip(),
+                "title": tx["course__title"],
+                "amount": float(tx["course__price"] or 0),
+                "date": tx["enrolled_on"],
             }
-            for tx in recent_transactions
+            for tx in course_transactions
         ]
-        logger.debug(f"Transactions Parsed: {transactions_data}")
+
+        subscription_data = [
+            {
+                "type": "SUBSCRIPTION",
+                "user": f"{tx['tutor__account__first_name']} {tx['tutor__account__last_name']}".strip(),
+                "title": tx["plan__name"],
+                "amount": float(tx["plan__price"]),
+                "date": tx["created_at"],
+            }
+            for tx in subscription_transactions
+        ]
+        
+        recent_transactions = sorted(
+            chain(course_data, subscription_data),
+            key=lambda x: x["date"],
+            reverse=True
+        )[:5]   
+
 
         # --- Final response ---
         data = {
@@ -165,7 +189,7 @@ class AdminDashboardView(APIView):
             "user_growth": user_growth,
             "top_tutors": top_tutors,
             "top_courses": top_courses,
-            "recent_transactions": transactions_data,
+            "recent_transactions": recent_transactions,
         }
 
         logger.info("Final dashboard data ready to return.")
@@ -453,6 +477,7 @@ class TutorOverView(APIView):
     def get(self, request, userId):
         try:
             deatils = get_object_or_404(TutorDetails, id=userId)
+            subscription = get_object_or_404(TutorSubscription, tutor=deatils)
 
             data = {
                 "id":deatils.account.id,
@@ -470,7 +495,13 @@ class TutorOverView(APIView):
                 "presentation_video": deatils.verification_video if deatils.verification_video else None,
                 "verification_file": deatils.verification_file if deatils.verification_file else None,
                 "profile_picture": deatils.profile_picture if deatils.profile_picture else None,
-                "status":deatils.status
+                "status":deatils.status,
+                "plan_name": subscription.plan.name,
+                "plan_category": subscription.plan.plan_category,
+                "plan_price": subscription.plan.price,
+                "plan_type": subscription.plan.plan_type,
+                "plan_expires": subscription.expires_on,
+                "paln_subscribed": subscription.subscribed_on
             }
 
             return Response(data, status=status.HTTP_200_OK)
@@ -1546,6 +1577,36 @@ class CourseReportMarkView(APIView):
 
 
 
+class PlatformWalletView(APIView):
+    
+    def get(self, request):
+        try:
+            wallet, _ = PlatformWallet.objects.get_or_create(id=1)
+            
+            wallet_transactions = PlatformWalletTransaction.objects.filter(wallet=wallet)
+            
+            transactions = PlatformWalletTransactionSerializer(wallet_transactions, many=True).data
+            
+            response_data = {
+                "wallet": {
+                    "total_revenue": wallet.total_revenue,
+                    "created_at": wallet.created_at
+                },
+                "transactions": transactions
+            }
+            
+            logger.info("Platform wallet details returned successfully")
+            return Response(response_data)
+            
+        except Exception as e:
+            logger.error(
+                f"Error in Platform wallet view: {str(e)}",
+                exc_info=True
+            )
+            return Response({"error": "Something went wrong"}, status=500)
+
+
+
 class PayoutRequestsListView(APIView):
     def get(self, request):
         
@@ -1614,7 +1675,6 @@ class PayoutRequestDetailsView(APIView):
 
 
 
-
 class ApprovePayoutRequestView(APIView):
     def post(self, request, id):
         try:
@@ -1666,7 +1726,6 @@ class ApprovePayoutRequestView(APIView):
         except Exception as e:
             logger.error(f"Error while approving payout request {id}: {str(e)}", exc_info=True)
             return Response({"error": "Something went wrong"}, status=500)
-
 
 
 

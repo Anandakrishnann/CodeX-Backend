@@ -1348,21 +1348,35 @@ class PayPalSuccessView(APIView):
             )
 
             tutor_amount = course.price * Decimal("0.70")
+            platform_amount = course.price * Decimal("0.30")
 
-            wallet, created = Wallet.objects.get_or_create(
+            tutor_wallet, created = Wallet.objects.get_or_create(
                 tutor=course.created_by,
                 defaults={"balance": tutor_amount}
             )
 
 
             if not created:
-                wallet.balance += tutor_amount
-                wallet.save()
+                tutor_wallet.balance += tutor_amount
+                tutor_wallet.save()
 
             WalletTransaction.objects.create(
-                wallet=wallet,
+                wallet=tutor_wallet,
                 amount=tutor_amount,
                 description=f"{course.title} purchased by {user.first_name} {user.last_name}"
+            )
+            
+            platform_wallet, _ = PlatformWallet.objects.get_or_create(pk=1)
+
+            platform_wallet.total_revenue += platform_amount
+            platform_wallet.save()
+            
+            PlatformWalletTransaction.objects.create(
+                wallet=platform_wallet,
+                amount=platform_amount,
+                transaction_type="COURSE_PURCHASE",
+                user=user,
+                tutor=course.created_by,
             )
 
             logger.info(f"Course enrollment successful --> user={user.email}, course={course.title}")
