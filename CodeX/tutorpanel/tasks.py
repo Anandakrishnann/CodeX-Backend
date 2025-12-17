@@ -56,6 +56,7 @@ def send_meeting_created_email(meeting_id):
     for user in users:
         html_message = render_to_string("meeting_created_email.html", {
             "name": user.first_name,
+            "course_name": meeting.course.title,
             "tutor_name": tutor_name,
             "meeting_date": meeting.date,
             "meeting_time": meeting.time,
@@ -71,9 +72,24 @@ def send_meeting_created_email(meeting_id):
         )
 
 
+
 @shared_task
-def send_meeting_rescheduled_email(meeting_id, user_id=None):
-    bookings = MeetingBooking.objects.filter(meeting_id=meeting_id).select_related("user", "meeting", "meeting__tutor")
+def send_meeting_update_email(
+    meeting_id,
+    user_id=None,
+    course_changed=False,
+    date_changed=False,
+    time_changed=False,
+    old_course_title=None,
+    old_date=None,
+    old_time=None,
+):
+    bookings = (
+        MeetingBooking.objects
+        .filter(meeting_id=meeting_id)
+        .select_related("user", "meeting", "meeting__tutor")
+    )
+
     if user_id:
         bookings = bookings.filter(user_id=user_id)
 
@@ -81,26 +97,49 @@ def send_meeting_rescheduled_email(meeting_id, user_id=None):
         user = booking.user
         meeting = booking.meeting
 
-        # Tutor name added here
-        tutor_name = meeting.tutor.account.first_name if meeting.tutor and meeting.tutor.account else "Tutor"
+        tutor_name = (
+            meeting.tutor.account.first_name
+            if meeting.tutor and meeting.tutor.account
+            else "Tutor"
+        )
 
-        subject = "Meeting Rescheduled by Tutor"
+        # ---------- Subject ----------
+        if course_changed and (date_changed or time_changed):
+            subject = "🔔 Meeting Details Updated"
+        elif course_changed:
+            subject = "🔔 Meeting Course Updated"
+        else:
+            subject = "⏰ Meeting Rescheduled"
 
-        html_message = render_to_string("meeting_resheduled.html", {
+        # ---------- Email Context ----------
+        context = {
             "name": user.first_name,
+            "tutor_name": tutor_name,
+            "meeting_course": meeting.course.title,
             "meeting_date": meeting.date,
             "meeting_time": meeting.time,
-            "tutor_name": tutor_name,  # <-- ADDED
-        })
+            "course_changed": course_changed,
+            "date_changed": date_changed,
+            "time_changed": time_changed,
+            "old_course": old_course_title,
+            "old_date": old_date,
+            "old_time": old_time,
+        }
+
+        html_message = render_to_string(
+            "meeting_resheduled.html",
+            context
+        )
 
         send_mail(
-            subject,
-            "",
-            os.getenv("EMAIL_HOST_USER"),
-            [user.email],
+            subject=subject,
+            message="",
+            from_email=os.getenv("EMAIL_HOST_USER"),
+            recipient_list=[user.email],
             html_message=html_message,
-            fail_silently=False
+            fail_silently=False,
         )
+
 
 
 @shared_task

@@ -183,6 +183,7 @@ class CreateLessonSerializer(serializers.ModelSerializer):
 
 
 class SheduleMeetingSerializer(serializers.Serializer):
+    course = serializers.IntegerField()
     date = serializers.DateField()
     time = serializers.TimeField()
     limit = serializers.IntegerField(min_value=1)
@@ -197,13 +198,17 @@ class SheduleMeetingSerializer(serializers.Serializer):
 
 class SheduledMeetingsSerializer(serializers.ModelSerializer):
     tutor_name = serializers.SerializerMethodField()
+    course_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Meetings
-        fields = ['id', 'tutor', 'date', 'time', 'limit', 'left', 'created_at', 'tutor_name']
+        fields = ['id', 'tutor', 'course', 'date', 'time', 'limit', 'left', 'created_at', 'tutor_name', 'course_name']
 
     def get_tutor_name(self, obj):
         return obj.tutor.full_name if obj.tutor else None
+    
+    def get_course_name(self, obj):
+        return obj.course.title if obj.course else None
 
 
 

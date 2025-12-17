@@ -838,6 +838,32 @@ class LessonRejectionHistoryView(APIView):
 
 
 
+class ActiveCoursesListView(APIView):
+    permission_classes = [IsSubscribed]
+    
+    def get(self, request):
+        try:
+            try:
+                tutor = TutorDetails.objects.get(account=request.user)
+            except Exception as e:
+                logger.warning(f"Tutor does not found: {e}")
+                return Response({"error": "Error while active course list"}, status=status.HTTP_400_BAD_REQUEST)
+                
+            try:
+                courses = Course.objects.filter(created_by=tutor, is_active=True, is_draft=False)
+            except Exception as e:
+                logger.warning(f"Active course does not found: {e}")
+                return Response({"error": "Error while active course list"}, status=status.HTTP_400_BAD_REQUEST)
+            
+            s_serializer = CourseDetailsSerializer(courses, many=True).data
+            
+            return Response(s_serializer, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.warning(f"Error while active course list: {e}")
+            return Response({"error": "Error while active course list"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
 class SheduleMeetingView(APIView):
     permission_classes = [IsSubscribed]
 
@@ -855,11 +881,18 @@ class SheduleMeetingView(APIView):
             logger.warning(f"TutorDetails not found for user {request.user.id}")
             return Response({"error": "Tutor does not exist"}, status=status.HTTP_404_NOT_FOUND)
 
+        course_id = serializer.validated_data["course"]
         date = serializer.validated_data["date"]
         time = serializer.validated_data["time"]
         limit = serializer.validated_data["limit"]
+        
+        try:
+            course = Course.objects.get(id=course_id, is_active=True, is_draft=False)
+        except Course.DoesNotExist:
+            logger.warning(f"Course not found for tutor {request.user.id}")
+            return Response({"error": "Course does not exist"}, status=status.HTTP_404_NOT_FOUND)
 
-        if Meetings.objects.filter(tutor=tutor, date=date, time=time).exists():
+        if Meetings.objects.filter(tutor=tutor, date=date, course=course, time=time).exists():
             logger.warning(f"Meeting already exists for tutor {tutor.id} at {date} {time}")
             return Response(
                 {"error": "A meeting at this date & time already exists."},
@@ -870,6 +903,7 @@ class SheduleMeetingView(APIView):
             with transaction.atomic():
                 meeting = Meetings.objects.create(
                     tutor=tutor,
+                    course=course,
                     date=date,
                     time=time,
                     limit=limit,
@@ -886,6 +920,7 @@ class SheduleMeetingView(APIView):
 
                 eligible_users = UserCourseEnrollment.objects.filter(
                     course__created_by=tutor,
+                    course=meeting.course,
                     status__in=["pending", "progress"]
                 ).select_related("user")
 
@@ -931,11 +966,23 @@ class EditMeetingView(APIView):
             return Response({"error": "Meeting does not exist"}, status=status.HTTP_404_NOT_FOUND)
 
         old_date = meeting.date
+        old_course = meeting.course
         old_time = meeting.time
 
+        course_changed = False
         date_changed = False
         time_changed = False
 
+        course_str = request.data.get("course")
+        if course_str:
+            try:
+                course = Course.objects.get(id=course_str, is_active=True, is_draft=False)
+                meeting.course = course
+                course_changed = True
+            except Exception as e:
+                logger.warning(f"Course Not Found: {e}")
+                return Response({"error": "Course Not Found"}, status=status.HTTP_400_BAD_REQUEST)
+            
         date_str = request.data.get("date")
         if date_str:
             try:
@@ -984,17 +1031,31 @@ class EditMeetingView(APIView):
             meeting=meeting,
             meeting_completed=False
         ).select_related("user")
-
-        if (date_changed or time_changed) and booked_users.exists():
+        
+        if booked_users.exists() and (course_changed or date_changed or time_changed):
             for booking in booked_users:
-                send_meeting_rescheduled_email.delay(meeting.id, booking.user.id)
+                send_meeting_update_email.delay(
+                    meeting_id=meeting.id,
+                    user_id=booking.user.id,
+                    course_changed=course_changed,
+                    date_changed=date_changed,
+                    time_changed=time_changed,
+                    old_course_title=old_course.title if course_changed else None,
+                    old_date=old_date if date_changed else None,
+                    old_time=old_time if time_changed else None,
+                )
+
                 try:
                     send_notification(
                         booking.user,
-                        "Your meeting was rescheduled by the tutor. Check your email for details."
+                        "Your meeting details were updated by the tutor. Please check your email."
                     )
                 except Exception as e:
-                    logger.warning(f"Failed to send notification to user {booking.user.id}: {e}")
+                    logger.warning(
+                        "Failed to send meeting update notification to user %s: %s",
+                        booking.user.id,
+                        e
+                    )
 
         logger.info(f"Meeting {meeting_id} edited successfully")
         return Response({"details": "Meeting edited successfully"}, status=status.HTTP_200_OK)
@@ -1258,12 +1319,9 @@ class PayoutRequestListView(APIView):
 
             payout_serializer = PayoutRequestSerializer(payouts, many=True)
             
-            response_data = {
-                "payout_requests": payout_serializer.data,
-            }
 
             logger.info(f"Payout request list returned successfully for tutor {tutor.id}")
-            return Response(response_data)
+            return Response(payout_serializer.data, status=status.HTTP_200_OK)
 
         except Exception as e:
             logger.error(
@@ -1284,6 +1342,11 @@ class PayoutRequestView(APIView):
             account = Accounts.objects.get(id=request.user.id)
             tutor = TutorDetails.objects.get(account=account)
             wallet, _ = Wallet.objects.get_or_create(tutor=tutor)
+            pending_requests = PayoutRequest.objects.filter(tutor=tutor, status="PENDING")
+            
+            if pending_requests:
+                logger.warning(f"payout reqeust pending {tutor.id}")
+                return Response({"error": "Pendig reqeust found only submit one payout request at a time."}, status=status.HTTP_400_BAD_REQUEST)
 
             logger.info(f"Wallet fetched for tutor {tutor.id}")
 
@@ -1297,34 +1360,34 @@ class PayoutRequestView(APIView):
 
             if not upi_id or not re.match(UPI_REGEX, upi_id):
                 logger.warning(f"Invalid UPI ID submitted by user {account.id}")
-                return Response({"detail": "Invalid UPI ID format."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": "Invalid UPI ID format."}, status=status.HTTP_400_BAD_REQUEST)
 
             if amount is None or str(amount).strip() == "":
                 logger.warning(f"Amount missing in payout request by user {account.id}")
-                return Response({"detail": "Amount is required."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": "Amount is required."}, status=status.HTTP_400_BAD_REQUEST)
 
             try:
                 amount_decimal = Decimal(str(amount))
             except (InvalidOperation, ValueError):
                 logger.warning(f"Invalid amount submitted by user {account.id}")
-                return Response({"detail": "Amount must be a valid number."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": "Amount must be a valid number."}, status=status.HTTP_400_BAD_REQUEST)
 
             if amount_decimal <= 0:
                 logger.warning(f"Non-positive amount submitted by user {account.id}")
-                return Response({"detail": "Amount must be greater than 0."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": "Amount must be greater than 0."}, status=status.HTTP_400_BAD_REQUEST)
 
             MIN_PAYOUT = Decimal("10")
             if amount_decimal < MIN_PAYOUT:
                 logger.warning(f"Payout below minimum amount attempted by user {account.id}: {amount_decimal}")
-                return Response({"detail": "Minimum withdrawal amount is $10."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": "Minimum withdrawal amount is $10."}, status=status.HTTP_400_BAD_REQUEST)
 
             if amount_decimal > wallet.balance:
                 logger.warning(f"Insufficient balance for payout - User {account.id}")
-                return Response({"detail": "Insufficient wallet balance."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": "Insufficient wallet balance."}, status=status.HTTP_400_BAD_REQUEST)
 
             if not bank_name:
                 logger.warning(f"Bank name missing in payout request by user {account.id}")
-                return Response({"detail": "Bank name is required."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": "Bank name is required."}, status=status.HTTP_400_BAD_REQUEST)
 
             payout = PayoutRequest.objects.create(
                 tutor=tutor,
@@ -1333,9 +1396,6 @@ class PayoutRequestView(APIView):
                 upi_id=upi_id,
                 bank_name=bank_name
             )
-
-            wallet.balance -= amount_decimal
-            wallet.save()
 
             logger.info(f"PayoutRequest created successfully for tutor {tutor.id}")
 
@@ -1365,6 +1425,6 @@ class PayoutRequestView(APIView):
         except Exception as e:
             logger.error(f"PayoutRequestView Error for user {request.user.id}: {str(e)}", exc_info=True)
             return Response(
-                {"detail": "Something went wrong."},
+                {"error": "Something went wrong."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )

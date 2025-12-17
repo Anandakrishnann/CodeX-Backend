@@ -64,6 +64,7 @@ class Lessons(models.Model):
 
 class Meetings(models.Model):
     tutor = models.ForeignKey("Accounts.TutorDetails", on_delete=models.SET_NULL, null=True)
+    course = models.ForeignKey(Course, on_delete=models.SET_NULL, null=True)
     date = models.DateField()
     time = models.TimeField()
     limit = models.PositiveIntegerField(help_text="Max number of participants or bookings for this time slot")

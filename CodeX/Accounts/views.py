@@ -2351,12 +2351,32 @@ class BookMeetingView(APIView):
             logger.warning("Meeting ID is required")
             return Response({"error": "Meeting ID is required."}, status=status.HTTP_400_BAD_REQUEST)
 
+
         try:
             meeting = Meetings.objects.get(id=meeting_id)
         except Meetings.DoesNotExist:
             logger.warning(f"Meeting {meeting_id} not found")
             return Response({"error": "Meeting not found."}, status=status.HTTP_404_NOT_FOUND)
+                
+        user_enrolled = UserCourseEnrollment.objects.filter(user=request.user,course=meeting.course).exists()
 
+        if not user_enrolled:
+            logger.warning("Access denied: user %s attempted to join meeting for course %s without enrollment",request.user.id,meeting.course.id)
+            return Response({"error": "You are not enrolled in this course."},status=status.HTTP_400_BAD_REQUEST)
+        
+        meeting_datetime = make_aware(datetime.combine(meeting.date, meeting.time))
+
+        if now() >= meeting_datetime - timedelta(minutes=15):
+                logger.warning(
+                    "Booking window closed: meeting %s | user %s",
+                    meeting_id,
+                    request.user.id
+                )
+                return Response(
+                    {"error": "Booking is closed. You must book at least 15 minutes before the meeting starts."},
+                    status=status.HTTP_400_BAD_REQUEST
+        )
+            
         if meeting.is_completed:
             logger.warning(f"Attempted to book already completed meeting {meeting_id}")
             return Response({"error": "This meeting is already completed."}, status=status.HTTP_400_BAD_REQUEST)
@@ -2374,10 +2394,12 @@ class BookMeetingView(APIView):
         meeting.left -= 1
         meeting.save()
         
-        send_meeting_confimation_email.delay(meeting.id, "scheduled", request.user.id)
+        send_meeting_confirmation_email.delay(meeting.id, "scheduled", request.user.id)
+        
+        logger.info("Triggering meeting confirmation email for user %s", request.user.email)
+
 
         # Calculate reminder time
-        meeting_datetime = make_aware(datetime.combine(meeting.date, meeting.time))
         reminder_time = meeting_datetime - timedelta(minutes=10)
         completion_time = meeting_datetime + timedelta(minutes=10)
 
@@ -2396,6 +2418,86 @@ class BookMeetingView(APIView):
 
         logger.info(f"Meeting {meeting_id} booked successfully by user {request.user.id}")
         return Response({"message": "Meeting booked successfully & reminder scheduled."}, status=status.HTTP_201_CREATED)
+        
+
+
+class CancelMeetingView(APIView):
+    permission_classes = [IsAuthenticatedUser]
+
+    def post(self, request):
+        meeting_id = request.data.get("meeting_id")
+
+        if not meeting_id:
+            logger.warning("Meeting ID is required")
+            return Response(
+                {"error": "Meeting ID is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            meeting = Meetings.objects.get(id=meeting_id)
+        except Meetings.DoesNotExist:
+            logger.warning("Meeting %s not found", meeting_id)
+            return Response(
+                {"error": "Meeting not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        booking = MeetingBooking.objects.filter(
+            meeting=meeting,
+            user=request.user,
+            meeting_completed=False
+        ).first()
+
+        if not booking:
+            logger.warning(
+                "Cancel failed: user %s has no booking for meeting %s",
+                request.user.id,
+                meeting_id
+            )
+            return Response(
+                {"error": "You have not booked this meeting."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        meeting_datetime = make_aware(
+            datetime.combine(meeting.date, meeting.time)
+        )
+
+        if now() >= meeting_datetime - timedelta(minutes=15):
+            logger.warning(
+                "Cancel window closed: meeting %s | user %s",
+                meeting_id,
+                request.user.id
+            )
+            return Response(
+                {
+                    "error": "Cancellation is allowed only up to 15 minutes before the meeting starts."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if meeting.is_completed:
+            logger.warning("Meeting %s already completed", meeting_id)
+            return Response(
+                {"error": "This meeting is already completed."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        booking.delete()
+        meeting.left += 1
+        meeting.save()
+
+        logger.info(
+            "Meeting %s cancelled successfully by user %s",
+            meeting_id,
+            request.user.id
+        )
+
+        return Response(
+            {"message": "Meeting cancelled successfully."},
+            status=status.HTTP_200_OK
+        )
         
 
 

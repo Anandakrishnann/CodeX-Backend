@@ -1694,6 +1694,7 @@ class ApprovePayoutRequestView(APIView):
             payout_request.processed_at = now()
             payout_request.save()
 
+            wallet.balance -= payout_request.amount 
             wallet.total_withdrawn += payout_request.amount
             wallet.save()
 
@@ -1746,8 +1747,6 @@ class RejectPayoutRequestView(APIView):
             payout_request.status = "REJECTED"
             payout_request.admin_note = admin_note
             payout_request.processed_at = now()
-
-            payout_request.wallet.balance += payout_request.amount
             payout_request.save()
 
             send_notification(

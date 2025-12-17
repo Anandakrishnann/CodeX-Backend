@@ -27,6 +27,7 @@ urlpatterns = [
     path('course_rejections/', CourseRejectionHistoryView.as_view(), name='course_rejections'),
     path('module_rejections/<str:course_id>/', ModuleRejectionHistoryView.as_view(), name='module_rejections'),
     path('lesson_rejections/<str:module_id>/', LessonRejectionHistoryView.as_view(), name='lesson_rejections'),
+    path('active-courses/', ActiveCoursesListView.as_view(), name='active-courses/'),
     path('shedule-meeting/', SheduleMeetingView.as_view(), name='shedule-meeting'),
     path('edit-meeting/', EditMeetingView.as_view(), name='edit-meeting'),
     path('delete-meeting/', DeleteMeetingView.as_view(), name='delete-meeting'),

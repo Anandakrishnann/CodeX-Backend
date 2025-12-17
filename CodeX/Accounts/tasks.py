@@ -5,6 +5,8 @@ from tutorpanel.models import MeetingBooking
 from django.utils.timezone import now
 import traceback
 import os
+import logging
+logger = logging.getLogger("codex")
 
 
 
@@ -40,7 +42,7 @@ def send_meeting_invite_email(meeting_id, type="scheduled", user_id=None):
 
 
 @shared_task
-def send_meeting_confimation_email(meeting_id, type="scheduled", user_id=None):
+def send_meeting_confirmation_email(meeting_id, type="scheduled", user_id=None):
     bookings = MeetingBooking.objects.filter(meeting_id=meeting_id).select_related("user", "meeting")
     
     if user_id:
@@ -53,6 +55,8 @@ def send_meeting_confimation_email(meeting_id, type="scheduled", user_id=None):
 
         html_message = render_to_string("meeting_confirmation.html", {
             "name": user.first_name,
+            "course_name": meeting.course.title,
+            "tutor_name": meeting.tutor.full_name,
             "meeting_date": meeting.date,
             "meeting_time": meeting.time,
         })
@@ -65,6 +69,15 @@ def send_meeting_confimation_email(meeting_id, type="scheduled", user_id=None):
             html_message=html_message,
             fail_silently=False
         )
+        
+        logger.info(
+            "[Meeting Confirmation] Attempting email send | user_id=%s | email=%s",
+            user.id,
+            user.email
+        )
+
+    
+    
 
 
 

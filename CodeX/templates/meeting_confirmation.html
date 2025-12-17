@@ -47,6 +47,14 @@
       padding: 10px;
       border: 1px solid #dddddd;
     }
+    .notice {
+      margin-top: 20px;
+      padding: 12px;
+      background-color: #fff7ed;
+      border-left: 4px solid #f59e0b;
+      color: #92400e;
+      font-size: 14px;
+    }
     .footer {
       background-color: #f1f5f9;
       text-align: center;
@@ -61,15 +69,32 @@
     }
   </style>
 </head>
+
 <body>
   <div class="email-container">
+
+    <!-- Header -->
     <div class="header">
       <h1>Meeting Scheduled</h1>
     </div>
+
+    <!-- Content -->
     <div class="content">
       <h2>Hello {{ name }},</h2>
-      <p>Your meeting has been successfully scheduled. Please find the details below:</p>
+
+      <p>
+        Your meeting has been successfully scheduled. Below are the meeting details:
+      </p>
+
       <table class="details-table">
+        <tr>
+          <td><strong>Course</strong></td>
+          <td>{{ course_name }}</td>
+        </tr>
+        <tr>
+          <td><strong>Tutor</strong></td>
+          <td>{{ tutor_name }}</td>
+        </tr>
         <tr>
           <td><strong>Date</strong></td>
           <td>{{ meeting_date }}</td>
@@ -79,11 +104,25 @@
           <td>{{ meeting_time }}</td>
         </tr>
       </table>
-      <p>We look forward to seeing you in the meeting.</p>
+
+      <p>
+        We look forward to seeing you in the meeting. Please make sure to join on time.
+      </p>
+
+      <!-- Cancellation Reminder -->
+      <div class="notice">
+        <strong>Important:</strong><br>
+        You can cancel this meeting only up to
+        <strong>15 minutes before the scheduled start time</strong>.
+        Cancellations will not be allowed within the last 15 minutes.
+      </div>
     </div>
+
+    <!-- Footer -->
     <div class="footer">
-      &copy; {{ current_year }} CodexLearning. All rights reserved.
+      &copy; {{ current_year|default:"2025" }} CodexLearning. All rights reserved.
     </div>
+
   </div>
 </body>
 </html>

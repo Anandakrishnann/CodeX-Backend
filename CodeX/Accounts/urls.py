@@ -42,6 +42,7 @@ urlpatterns = [
     path("available-meetings/", AvailableMeetingsView.as_view(), name="available-meetings/"),
     path("booked-meetings/", BookedMeetingsView.as_view(), name="booked-meetings/"),
     path('book-meeting/', BookMeetingView.as_view(), name='book-meeting'),
+    path('cancel-meeting/', CancelMeetingView.as_view(), name='cancel-meeting'),
     path('recent-meetings/', RecentMeetingsView.as_view(), name='recent-meetings/'),
     path("tutor/feedback/", TutorFeedbackView.as_view(), name="tutor-feedback-create"),
     path("tutor/<int:tutor_id>/feedback/", TutorFeedbackView.as_view(), name="tutor-feedback-list-delete"),
