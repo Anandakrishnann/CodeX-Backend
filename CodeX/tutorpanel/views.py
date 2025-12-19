@@ -1428,3 +1428,27 @@ class PayoutRequestView(APIView):
                 {"error": "Something went wrong."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+
+class PayoutCancelView(APIView):
+    permission_classes = [IsSubscribed]
+
+    def post(self, request):
+        request_id = request.data.get("request_id")
+
+        if not request_id:
+            logger.warning("Payout cancel failed: request_id not provided")
+            return Response({"error": "Payout request ID is required."},status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            payout = PayoutRequest.objects.get(id=request_id, tutor=request.user.tutor_details, status="PENDING")
+        except PayoutRequest.DoesNotExist:
+            logger.warning("Payout cancel failed: request_id=%s not found or not pending",request_id)
+            return Response({"error": "Payout request not found or cannot be cancelled."},status=status.HTTP_404_NOT_FOUND)
+
+        payout.delete()
+
+        logger.info("Payout request %s cancelled successfully by tutor %s", request_id, request.user.id)
+
+        return Response({"message": "Payout request cancelled successfully."},status=status.HTTP_200_OK)

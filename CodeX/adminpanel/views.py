@@ -28,6 +28,8 @@ from tutorpanel.serializers import WalletTransactionSerializer
 from notifications.utils import send_notification
 from Accounts.tasks import send_report_marked_email
 from django.core.mail import send_mail
+from decimal import Decimal, InvalidOperation
+import re
 import os
 import logging
 
@@ -582,8 +584,7 @@ class AcceptApplicationView(APIView):
             # Update user role & application status
             user.role = "tutor"
             user.save()
-            application.status = "verified"
-            application.save()
+            application.delete()
             
             
 
@@ -1684,8 +1685,46 @@ class ApprovePayoutRequestView(APIView):
                 logger.error("Admin Note is required")
                 return Response({"error": "Admin Note Required"}, status=400)
 
-            payout_request = get_object_or_404(PayoutRequest, id=id)
+            try:
+                payout_request = PayoutRequest.objects.get(id=id, status="PENDING")
+            except PayoutRequest.DoesNotExist:
+                logger.warning("Payout cancel failed: request_id=%s not found or not pending",id)
+                return Response({"error": "Payout request not found or cannot be cancelled."},status=status.HTTP_404_NOT_FOUND)
+            
             wallet = Wallet.objects.get(tutor=payout_request.tutor)
+            
+            UPI_REGEX = r"^[\w\.-]{2,256}@[A-Za-z]{2,64}$"
+
+            if not payout_request.upi_id or not re.match(UPI_REGEX, payout_request.upi_id):
+                logger.warning(f"Invalid UPI ID submitted by user {payout_request.tutor.id}")
+                return Response({"error": "Invalid UPI ID format."}, status=status.HTTP_400_BAD_REQUEST)
+
+            if payout_request.amount is None or str(payout_request.amount).strip() == "":
+                logger.warning(f"Amount missing in payout request by user {payout_request.tutor.id}")
+                return Response({"error": "Amount is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+            try:
+                amount_decimal = Decimal(str(payout_request.amount))
+            except (InvalidOperation, ValueError):
+                logger.warning(f"Invalid amount submitted by user {payout_request.tutor.id}")
+                return Response({"error": "Amount must be a valid number."}, status=status.HTTP_400_BAD_REQUEST)
+
+            if amount_decimal <= 0:
+                logger.warning(f"Non-positive amount submitted by user {payout_request.tutor.id}")
+                return Response({"error": "Amount must be greater than 0."}, status=status.HTTP_400_BAD_REQUEST)
+
+            MIN_PAYOUT = Decimal("10")
+            if amount_decimal < MIN_PAYOUT:
+                logger.warning(f"Payout below minimum amount attempted by user {payout_request.tutor.id}: {amount_decimal}")
+                return Response({"error": "Minimum withdrawal amount is $10."}, status=status.HTTP_400_BAD_REQUEST)
+
+            if amount_decimal > wallet.balance:
+                logger.warning(f"Insufficient balance for payout - User {payout_request.tutor.id}")
+                return Response({"error": "Insufficient wallet balance."}, status=status.HTTP_400_BAD_REQUEST)
+
+            if not payout_request.bank_name:
+                logger.warning(f"Bank name missing in payout request by user {payout_request.tutor.id}")
+                return Response({"error": "Bank name is required."}, status=status.HTTP_400_BAD_REQUEST)
 
             logger.info(f"Payout request: {payout_request.id}")
 
@@ -1739,7 +1778,11 @@ class RejectPayoutRequestView(APIView):
                 logger.error("Admin Note is required")
                 return Response({"error": "Admin Note Required"}, status=400)
 
-            payout_request = get_object_or_404(PayoutRequest, id=id)
+            try:
+                payout_request = PayoutRequest.objects.get(id=id, status="PENDING")
+            except PayoutRequest.DoesNotExist:
+                logger.warning("Payout cancel failed: request_id=%s not found or not pending",id)
+                return Response({"error": "Payout request not found or cannot be cancelled."},status=status.HTTP_404_NOT_FOUND)
 
             logger.info(f"Admin Note: {admin_note}")
             logger.info(f"Payout request: {payout_request.id}")

@@ -12,6 +12,7 @@ urlpatterns = [
     path('user_dashboard/', UserDashboardView.as_view(), name='user_dashboard'),
     path('user_profile/', UserProfileView.as_view(), name='user_profile'),
     path('profile_picture/', UploadUserProfilePictureView.as_view(), name='profile_picture'),
+    path('change_password/', ChangePasswordView.as_view(), name='change_password'),
     path('tutor_home/', TutorHomeView.as_view(), name='tutor_home'),
     path('courses/', ListCourseView.as_view(), name='courses'),
     path("categories/", ListCategoriesView.as_view(), name="categories"),

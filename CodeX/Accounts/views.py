@@ -9,6 +9,7 @@ from .serializers import *
 from django.shortcuts import redirect
 from random import randint
 from .models import *
+import re
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.views import TokenRefreshView
 from django.core.exceptions import ObjectDoesNotExist
@@ -786,6 +787,53 @@ class UploadUserProfilePictureView(APIView):
             return Response(profile_picture_url, status=status.HTTP_200_OK)
         except:
             return Response({"error":"Error While Profile Upload"})
+
+
+
+class ChangePasswordView(APIView):
+    permission_classes = [IsAuthenticatedUser]
+
+    def post(self, request):
+        try:
+            user = request.user
+
+            old_password = request.data.get("old_password", "").strip()
+            new_password = request.data.get("new_password", "").strip()
+            confirm_password = request.data.get("confirm_password", "").strip()
+
+            if not old_password or not new_password or not confirm_password:
+                logger.warning("Password change failed: missing fields | user_id=%s", user.id)
+                return Response({"error": "All password fields are required."}, status=status.HTTP_400_BAD_REQUEST)
+            
+            if len(new_password) < 8:
+                logger.warning("Password change failed: password too short | user_id=%s", user.id)
+                return Response({"error": "Password must be at least 8 characters long."},status=status.HTTP_400_BAD_REQUEST)
+
+            if not re.match(r'^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[!@#$%^&*])[A-Za-z\d!@#$%^&*]{8,}$', new_password):
+                logger.warning("Password change failed: weak password | user_id=%s", user.id)
+                return Response({"error": "Password must contain uppercase, lowercase, digit, and special character."},status=status.HTTP_400_BAD_REQUEST)
+
+            if old_password == new_password:
+                logger.warning("Password change failed: New password must be different from your current password. | user_id=%s", user.id)
+                return Response({"error": "New password must be different from your current password."}, status=status.HTTP_400_BAD_REQUEST)
+            
+            if new_password != confirm_password:
+                logger.warning("Password change failed: password mismatch | user_id=%s", user.id)
+                return Response({"error": "New password and confirm password do not match."}, status=status.HTTP_400_BAD_REQUEST)
+
+            if not user.check_password(old_password):
+                logger.warning("Password change failed: incorrect old password | user_id=%s", user.id)
+                return Response({"error": "Old password is incorrect."}, status=status.HTTP_400_BAD_REQUEST)
+
+            user.set_password(new_password)
+            user.save()
+
+            logger.info("Password changed successfully | user_id=%s", user.id)
+            return Response({"message": "Password updated successfully."}, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error("Password change error | user_id=%s | error=%s", request.user.id if request.user else None, str(e))
+            return Response({"error": "Something went wrong while changing the password."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 

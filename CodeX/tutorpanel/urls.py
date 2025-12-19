@@ -38,4 +38,5 @@ urlpatterns = [
     path('wallet-dashboard/', WalletDashboardView.as_view(), name='wallet-dashboard/'),
     path('payout-requests/', PayoutRequestListView.as_view(), name='payout-requests/'),
     path('request_payout/', PayoutRequestView.as_view(), name='request_payout/'),
+    path('cancel_payout/', PayoutCancelView.as_view(), name='cancel_payout/'),
 ]
