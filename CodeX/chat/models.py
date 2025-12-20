@@ -7,6 +7,11 @@ class ChatRoom(models.Model):
     participants = models.ManyToManyField(Accounts, related_name="chat_rooms")
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=['created_at']),
+        ]
+
 
 class Message(models.Model):
     room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name='messages')
@@ -20,6 +25,16 @@ class Message(models.Model):
     timestamp = models.DateTimeField(auto_now_add=True)
     is_read = models.BooleanField(default=False)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=['room']),
+            models.Index(fields=['sender']),
+            models.Index(fields=['timestamp']),
+            models.Index(fields=['is_read']),
+            models.Index(fields=['room', 'timestamp']),
+            models.Index(fields=['sender', 'is_read']),
+        ]
+
 
 
 class CallSession(models.Model):
@@ -30,3 +45,14 @@ class CallSession(models.Model):
     ended_at = models.DateTimeField(null=True, blank=True)
     call_type = models.CharField(max_length=10, choices=[('video', 'Video'), ('audio', 'Audio')], default='video')
     status = models.CharField(max_length=10, choices=[('missed', 'Missed'), ('completed', 'Completed')], default='missed')
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['room']),
+            models.Index(fields=['caller']),
+            models.Index(fields=['callee']),
+            models.Index(fields=['status']),
+            models.Index(fields=['started_at']),
+            models.Index(fields=['caller', 'status']),
+            models.Index(fields=['room', 'started_at']),
+        ]

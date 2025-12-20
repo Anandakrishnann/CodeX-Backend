@@ -1011,7 +1011,7 @@ class AcceptCourseRequestView(APIView):
 
             # ✅ Get tutor's account
             user = get_object_or_404(Accounts, id=tutor.account.id)
-            logger.debug(f"[DEBUG] Tutor's account found: {user.email}")
+            logger.debug("[DEBUG] Tutor's account found | user_id=%s", user.id)
 
             # ✅ Update course status
             course.status = "accepted"
@@ -1022,7 +1022,7 @@ class AcceptCourseRequestView(APIView):
             # ✅ Notify tutor
             try:
                 send_notification(user, f"🎉 Your course '{course.name}' was accepted by admin.")
-                logger.info(f"[SUCCESS] Notification sent to {user.email} for course '{course.name}'.")
+                logger.info("[SUCCESS] Notification sent | user_id=%s | course_id=%s", user.id, course.id)
             except Exception as notify_error:
                 logger.error(f"[ERROR] Failed to send notification: {notify_error}", exc_info=True)
 
@@ -1813,7 +1813,7 @@ class RejectPayoutRequestView(APIView):
                 )
 
             send_mail(subject, message, os.getenv("EMAIL_HOST_USER"), [payout_request.tutor.account.email])
-            logger.info(f"Payout reject email sent to {payout_request.tutor.account.email}")
+            logger.info("Payout reject email sent | user_id=%s", payout_request.tutor.account.id)
 
             return Response({"message": "Payout Request Rejected Successfully"}, status=200)
 

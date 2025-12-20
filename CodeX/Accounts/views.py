@@ -79,7 +79,7 @@ class UserRegisterView(APIView):
             email = user_data["email"].strip()
 
             if Accounts.objects.filter(email=email).exists():
-                logger.warning(f"Registration failed: User already exists ({email})")
+                logger.warning("Registration failed: User already exists | email_hash=%s", hashlib.sha256(email.encode()).hexdigest()[:16])
                 return Response({"error": "User already exists"}, status=400)
 
             # Generate OTP
@@ -100,16 +100,27 @@ class UserRegisterView(APIView):
             # Sending Email
             try:
                 send_mail(
-                    "Your OTP for Verification",
-                    f"Your OTP is: {otp}",
-                    settings.EMAIL_HOST_USER,
-                    [email]
+                    subject="🔐 CodeXLearning | Your OTP for Email Verification",
+                    message=(
+                        f"Hello,\n\n"
+                        f"Thank you for signing up with CodeXLearning!\n\n"
+                        f"To complete your email verification, please use the One-Time Password (OTP) below:\n\n"
+                        f"🔢 OTP: {otp}\n\n"
+                        f"This OTP is valid for a limited time. Please do not share it with anyone for security reasons.\n\n"
+                        f"If you did not request this verification, please ignore this email or contact our support team.\n\n"
+                        f"📧 Support: codexlearninginfo@gmail.com\n\n"
+                        f"Happy Learning!\n"
+                        f"— CodeXLearning Team"
+                    ),
+                    from_email=settings.EMAIL_HOST_USER,
+                    recipient_list=[email],
                 )
+
             except Exception:
                 logger.exception(f"Email sending failed for OTP to {email}")
                 return Response({"error": "Failed to send OTP email"}, status=500)
 
-            logger.info(f"OTP generated for {email}: {otp}")
+            logger.info("OTP generated and sent | email_hash=%s", hashlib.sha256(email.encode()).hexdigest()[:16])
             return Response({"message": "OTP sent to your email"}, status=200)
 
         except Exception:
@@ -137,15 +148,15 @@ class OTPVerificationView(APIView):
             otp_hash = cache.get(otp_key)
 
             if not data:
-                logger.warning(f"Registration expired for {email}")
+                logger.warning("Registration expired | email_hash=%s", hashlib.sha256(email.encode()).hexdigest()[:16])
                 return Response({"error": "Registration expired. Please register again."}, status=400)
 
             if not otp_hash:
-                logger.warning(f"OTP expired for {email}")
+                logger.warning("OTP expired | email_hash=%s", hashlib.sha256(email.encode()).hexdigest()[:16])
                 return Response({"error": "OTP expired. Please request a new OTP."}, status=400)
 
             if data["attempts"] >= 5:
-                logger.warning(f"OTP verification blocked for {email}: Too many attempts")
+                logger.warning("OTP verification blocked: Too many attempts | email_hash=%s", hashlib.sha256(email.encode()).hexdigest()[:16])
                 return Response({"error": "Too many attempts. Try again later"}, status=429)
 
             entered_hash = hashlib.sha256(str(otp).encode()).hexdigest()
@@ -153,7 +164,7 @@ class OTPVerificationView(APIView):
             if entered_hash != otp_hash:
                 data["attempts"] += 1
                 cache.set(reg_key, data, timeout=600)
-                logger.warning(f"Invalid OTP for {email}. Attempts: {data['attempts']}")
+                logger.warning("Invalid OTP attempt | email_hash=%s | attempts=%s", hashlib.sha256(email.encode()).hexdigest()[:16], data['attempts'])
                 return Response({"error": "Invalid OTP"}, status=400)
 
             # OTP correct --> create user
@@ -169,7 +180,7 @@ class OTPVerificationView(APIView):
             cache.delete(reg_key)
             cache.delete(otp_key)
 
-            logger.info(f"User created after OTP verification: {email}")
+            logger.info("User created after OTP verification | user_id=%s | email_hash=%s", user.id, hashlib.sha256(email.encode()).hexdigest()[:16])
 
             try:
                 send_mail(
@@ -179,7 +190,7 @@ class OTPVerificationView(APIView):
                     [email]
                 )
             except Exception:
-                logger.exception(f"Activation email sending failed for {email}")
+                logger.exception("Activation email sending failed | user_id=%s", user.id)
 
             return Response({"message": "Account created successfully"}, status=200)
 
@@ -206,7 +217,7 @@ class ResendOTPView(APIView):
             data = cache.get(reg_key)
 
             if not data:
-                logger.warning(f"Resend OTP failed - no pending registration for {email}")
+                logger.warning("Resend OTP failed - no pending registration | email_hash=%s", hashlib.sha256(email.encode()).hexdigest()[:16])
                 return Response({"error": "No pending registration found"}, status=400)
 
             # Generate new OTP
@@ -220,16 +231,25 @@ class ResendOTPView(APIView):
 
             try:
                 send_mail(
-                    "Your OTP for Verification",
-                    f"Your OTP is: {otp}",
+                    "CodeXLearning | OTP Verification",
+                    f"Hello,\n\n"
+                    f"Welcome to CodeXLearning!\n\n"
+                    f"Your One-Time Password (OTP) for email verification is:\n\n"
+                    f"{otp}\n\n"
+                    f"This OTP is valid for a short time. Please do not share it with anyone.\n\n"
+                    f"If you did not request this OTP, please ignore this email or contact our support team.\n\n"
+                    f"Support Email: codexlearninginfo@gmail.com\n\n"
+                    f"Happy Learning!\n"
+                    f"— CodeXLearning Team",
                     settings.EMAIL_HOST_USER,
                     [email]
                 )
-            except Exception:
-                logger.exception(f"Failed to resend OTP email to {email}")
+
+            except Exception as e:
+                logger.exception("Failed to resend OTP email | email_hash=%s", hashlib.sha256(email.encode()).hexdigest()[:16])
                 return Response({"error": "Failed to resend OTP email"}, status=500)
 
-            logger.info(f"OTP resent to {email}: {otp}")
+            logger.info("OTP resent | email_hash=%s", hashlib.sha256(email.encode()).hexdigest()[:16])
             return Response({"message": "OTP resent successfully"}, status=200)
 
         except Exception:
@@ -273,10 +293,10 @@ class LoginView(APIView):
         try:
             account = Accounts.objects.get(email=email)
             if account.google_verified:
-                logger.warning(f"User {email} attempted regular login but account is Google verified")
+                logger.warning("User attempted regular login but account is Google verified | user_id=%s", account.id)
                 return Response({"error":"⚠️ Unable to log you in. Please sign in using your Google account to continue."}, status=status.HTTP_406_NOT_ACCEPTABLE)
         except Accounts.DoesNotExist:
-            logger.warning(f"Login attempt for non-existent user: {email}")
+            logger.warning("Login attempt for non-existent user | email_hash=%s", hashlib.sha256(email.encode()).hexdigest()[:16])
             return Response({"error":"User Does Not Found"}, status=status.HTTP_404_NOT_FOUND)
         if serializer.is_valid():
             user = serializer.validated_data["user"]
@@ -627,7 +647,7 @@ class UserDashboardView(APIView):
 
     def get(self, request):
         user = request.user
-        logger.debug(f"User: {user.id} {user.email}")
+        logger.debug("User dashboard accessed | user_id=%s", user.id)
 
         # ======== Basic Stats ========
         active_courses = UserCourseEnrollment.objects.filter(user=user, status='progress').count()
@@ -785,7 +805,8 @@ class UploadUserProfilePictureView(APIView):
             user.save()
 
             return Response(profile_picture_url, status=status.HTTP_200_OK)
-        except:
+        except Exception as e:
+            logger.exception("Error while uploading profile picture | user_id=%s", request.user.id if request.user else None)
             return Response({"error":"Error While Profile Upload"})
 
 
@@ -1279,7 +1300,7 @@ class PayPalSuccessView(APIView):
             course_id = request.data.get("course_id")
             order_id = request.data.get("orderID")
 
-            logger.info(f"Incoming Payload --> user_email={user_email}, course_id={course_id}, order_id={order_id}")
+            logger.info("Incoming PayPal payload | course_id=%s | order_id=%s", course_id, order_id)
 
             if not user_email or not course_id or not order_id:
                 logger.warning("Missing required fields in PayPalSuccessView request")
@@ -1343,9 +1364,9 @@ class PayPalSuccessView(APIView):
 
             try:
                 user = Accounts.objects.get(email=user_email)
-                logger.info(f"User validated: {user.email}")
+                logger.info("User validated | user_id=%s", user.id)
             except Accounts.DoesNotExist:
-                logger.error(f"User does not exist: {user_email}")
+                logger.error("User does not exist | email_hash=%s", hashlib.sha256(user_email.encode()).hexdigest()[:16])
                 return Response({"error": "User does not exist"}, status=404)
 
             try:
@@ -1356,7 +1377,7 @@ class PayPalSuccessView(APIView):
                 return Response({"error": "Course does not exist"}, status=404)
 
             if user.isblocked:
-                logger.warning(f"Blocked user attempted purchase: {user.email}")
+                logger.warning("Blocked user attempted purchase | user_id=%s", user.id)
                 return Response({"error": "User account is blocked"}, status=403)
 
             if not course.is_active:
@@ -1385,7 +1406,7 @@ class PayPalSuccessView(APIView):
                 return Response({"error": "Payment amount mismatch"}, status=400)
 
             if UserCourseEnrollment.objects.filter(user=user, course=course).exists():
-                logger.info(f"Duplicate purchase attempt — user already enrolled: {user.email}")
+                logger.info("Duplicate purchase attempt — user already enrolled | user_id=%s | course_id=%s", user.id, course.id)
                 return Response({"message": "Course already purchased"}, status=200)
 
 
@@ -1427,7 +1448,7 @@ class PayPalSuccessView(APIView):
                 tutor=course.created_by,
             )
 
-            logger.info(f"Course enrollment successful --> user={user.email}, course={course.title}")
+            logger.info("Course enrollment successful | user_id=%s | course_id=%s", user.id, course.id)
 
             return Response(
                 {"message": "Course purchased successfully!"},
@@ -2444,7 +2465,7 @@ class BookMeetingView(APIView):
         
         send_meeting_confirmation_email.delay(meeting.id, "scheduled", request.user.id)
         
-        logger.info("Triggering meeting confirmation email for user %s", request.user.email)
+        logger.info("Triggering meeting confirmation email | user_id=%s", request.user.id)
 
 
         # Calculate reminder time

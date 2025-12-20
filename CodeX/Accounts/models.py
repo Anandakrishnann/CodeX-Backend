@@ -70,6 +70,14 @@ class Accounts(AbstractBaseUser):
 
     class Meta:
         db_table = 'Accounts_accounts'
+        indexes = [
+            models.Index(fields=['email']),
+            models.Index(fields=['role']),
+            models.Index(fields=['created_at']),
+            models.Index(fields=['isblocked']),
+            models.Index(fields=['google_verified']),
+            models.Index(fields=['role', 'isblocked']),
+        ]
 
     objects = AccountsManager()
 
@@ -105,6 +113,11 @@ class TutorDetails(models.Model):
     STATUS_CHOICE = [('pending', 'Pending'), ('verified', 'Verified'), ('rejected', 'Rejected')]
     status = models.CharField(max_length=50, choices=STATUS_CHOICE, default="pending")
     
+    class Meta:
+        indexes = [
+            models.Index(fields=['status']),
+            models.Index(fields=['account']),
+        ]
 
     def __str__(self):
         return f"Tutor Details for {self.full_name}"
@@ -130,6 +143,14 @@ class TutorSubscription(models.Model):
     stripe_subscription_id = models.CharField(max_length=255, null=True, blank=True)
     stripe_customer_id = models.CharField(max_length=255, null=True, blank=True)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=['tutor']),
+            models.Index(fields=['is_active']),
+            models.Index(fields=['expires_on']),
+            models.Index(fields=['tutor', 'is_active']),
+        ]
+
     def __str__(self):
         return f"{self.tutor.account.email} - {self.plan.name}"
     
@@ -149,6 +170,15 @@ class UserCourseEnrollment(models.Model):
     progress = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
     completed_at = models.DateTimeField(null=True, blank=True)
     
+    class Meta:
+        indexes = [
+            models.Index(fields=['user']),
+            models.Index(fields=['course']),
+            models.Index(fields=['status']),
+            models.Index(fields=['enrolled_on']),
+            models.Index(fields=['user', 'status']),
+            models.Index(fields=['course', 'status']),
+        ]
 
 
 class ModuleProgress(models.Model):
@@ -166,6 +196,13 @@ class ModuleProgress(models.Model):
 
     class Meta:
         unique_together = ('user', 'module')
+        indexes = [
+            models.Index(fields=['user']),
+            models.Index(fields=['module']),
+            models.Index(fields=['status']),
+            models.Index(fields=['user', 'status']),
+            models.Index(fields=['module', 'status']),
+        ]
 
     def __str__(self):
         return f"{self.user.username} - {self.module.title} - {self.status}"
@@ -188,6 +225,14 @@ class LessonProgress(models.Model):
 
     class Meta:
         unique_together = ('user', 'lesson')
+        indexes = [
+            models.Index(fields=['user']),
+            models.Index(fields=['lesson']),
+            models.Index(fields=['status']),
+            models.Index(fields=['completed']),
+            models.Index(fields=['user', 'status']),
+            models.Index(fields=['lesson', 'status']),
+        ]
 
 
 
@@ -203,6 +248,12 @@ class TutorFeedback(models.Model):
     class Meta:
         db_table = "tutor_feedback"
         unique_together = ('tutor', 'user')
+        indexes = [
+            models.Index(fields=['tutor']),
+            models.Index(fields=['user']),
+            models.Index(fields=['created_at']),
+            models.Index(fields=['tutor', 'created_at']),
+        ]
 
 
 
@@ -218,6 +269,12 @@ class CourseFeedback(models.Model):
     class Meta:
         db_table = "course_feedback"
         unique_together = ('course', 'user')
+        indexes = [
+            models.Index(fields=['course']),
+            models.Index(fields=['user']),
+            models.Index(fields=['created_at']),
+            models.Index(fields=['course', 'created_at']),
+        ]
 
 
 
@@ -233,6 +290,13 @@ class TutorReport(models.Model):
     class Meta:
         db_table = "tutor_reports"
         unique_together = ("tutor", "user")  # prevent duplicate reports
+        indexes = [
+            models.Index(fields=['tutor']),
+            models.Index(fields=['user']),
+            models.Index(fields=['is_marked']),
+            models.Index(fields=['created_at']),
+            models.Index(fields=['tutor', 'is_marked']),
+        ]
 
     def __str__(self):
         return f"Report by {self.user} on {self.tutor}"
@@ -251,6 +315,13 @@ class CourseReport(models.Model):
     class Meta:
         db_table = "course_reports"
         unique_together = ("course", "user")  # prevent duplicate reports
+        indexes = [
+            models.Index(fields=['course']),
+            models.Index(fields=['user']),
+            models.Index(fields=['is_marked']),
+            models.Index(fields=['created_at']),
+            models.Index(fields=['course', 'is_marked']),
+        ]
 
     def __str__(self):
         return f"Report by {self.user} on {self.course}"

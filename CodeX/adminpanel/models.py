@@ -25,6 +25,15 @@ class TutorApplications(models.Model):
     created_at = models.DateTimeField(auto_now_add=True) 
     STATUS_CHOICES = [('pending', 'Pending'), ('accepted', 'Accepted'), ('rejected', 'Rejected')]
     status = models.CharField(max_length=50, choices=STATUS_CHOICES, default='pending')
+    
+    class Meta:
+        indexes = [
+            models.Index(fields=['status']),
+            models.Index(fields=['account']),
+            models.Index(fields=['created_at']),
+            models.Index(fields=['email']),
+            models.Index(fields=['status', 'created_at']),
+        ]
  
     def __str__(self):
         return self.full_name
@@ -44,6 +53,12 @@ class TutorRejectionHistory(models.Model):
     reason = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=['application']),
+            models.Index(fields=['created_at']),
+        ]
+
     def __str__(self):
         return f"Rejection for {self.application.full_name} at {self.created_at}"
     
@@ -54,6 +69,12 @@ class CourseRejectionHistory(models.Model):
     admin = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True)
     reason = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['course']),
+            models.Index(fields=['created_at']),
+        ]
 
     def __str__(self):
         from tutorpanel.models import Course  
@@ -67,6 +88,12 @@ class ModuleRejectionHistory(models.Model):
     reason = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=['module']),
+            models.Index(fields=['created_at']),
+        ]
+
     def __str__(self):
         from tutorpanel.models import Modules  
         return f"Rejection for {self.module.title} at {self.created_at}"
@@ -78,6 +105,12 @@ class LessonRejectionHistory(models.Model):
     admin = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True)
     reason = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['lesson']),
+            models.Index(fields=['created_at']),
+        ]
 
     def __str__(self):
         from tutorpanel.models import Lessons  
@@ -98,6 +131,14 @@ class Plan(models.Model):
     is_active = models.BooleanField(default=True)
     deactivate = models.BooleanField(default=False)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=['is_active']),
+            models.Index(fields=['plan_type']),
+            models.Index(fields=['plan_category']),
+            models.Index(fields=['is_active', 'plan_type']),
+        ]
+
     def __str__(self):
         return f"{self.name} - {self.plan_type}"
 
@@ -108,6 +149,13 @@ class CourseCategory(models.Model):
     description = models.CharField(max_length=500)
     created_at = models.DateField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['is_active']),
+            models.Index(fields=['created_at']),
+            models.Index(fields=['is_active', 'created_at']),
+        ]
 
     def __str__(self):
         return self.name
@@ -134,6 +182,15 @@ class PayoutRequest(models.Model):
     requested_at = models.DateTimeField(auto_now_add=True)
     processed_at = models.DateTimeField(null=True, blank=True)
     admin_note = models.TextField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['tutor']),
+            models.Index(fields=['status']),
+            models.Index(fields=['requested_at']),
+            models.Index(fields=['tutor', 'status']),
+            models.Index(fields=['status', 'requested_at']),
+        ]
 
 
 
@@ -172,6 +229,16 @@ class PlatformWalletTransaction(models.Model):
     tutor = models.ForeignKey("Accounts.TutorDetails", on_delete=models.SET_NULL, null=True, blank=True, related_name="tutor_commission_source")
 
     created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        indexes = [
+            models.Index(fields=['wallet']),
+            models.Index(fields=['transaction_type']),
+            models.Index(fields=['created_at']),
+            models.Index(fields=['user']),
+            models.Index(fields=['tutor']),
+            models.Index(fields=['transaction_type', 'created_at']),
+        ]
     
     def __str__(self):
         return f"{self.transaction_type} - ${self.amount}"

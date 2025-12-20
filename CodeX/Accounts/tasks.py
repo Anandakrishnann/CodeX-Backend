@@ -71,9 +71,8 @@ def send_meeting_confirmation_email(meeting_id, type="scheduled", user_id=None):
         )
         
         logger.info(
-            "[Meeting Confirmation] Attempting email send | user_id=%s | email=%s",
-            user.id,
-            user.email
+            "[Meeting Confirmation] Attempting email send | user_id=%s",
+            user.id
         )
 
     

@@ -125,7 +125,7 @@ class TutorSubscribedCheckView(APIView):
             return Response({"subscribed": False}, status=status.HTTP_200_OK)
 
         is_subscribed = TutorSubscription.objects.filter(tutor=tutor, is_active=True).exists()
-        logger.info(f"Subscription check for {request.user.email}: {is_subscribed}")
+        logger.info("Subscription check | user_id=%s | subscribed=%s", request.user.id, is_subscribed)
 
         return Response({"subscribed": is_subscribed}, status=status.HTTP_200_OK)
         
@@ -1354,7 +1354,7 @@ class PayoutRequestView(APIView):
             bank_name = request.data.get("bank_name")
             amount = request.data.get("amount")
 
-            logger.debug(f"Received payout request data - UPI: {upi_id}, Bank: {bank_name}, Amount: {amount}")
+            logger.debug("Received payout request data | user_id=%s | bank_name=%s | amount=%s", account.id, bank_name, amount)
 
             UPI_REGEX = r"^[\w\.-]{2,256}@[A-Za-z]{2,64}$"
 
@@ -1418,7 +1418,7 @@ class PayoutRequestView(APIView):
 
             send_mail(subject, message, os.getenv("EMAIL_HOST_USER"), [account.email])
 
-            logger.info(f"Payout confirmation email sent to {account.email}")
+            logger.info("Payout confirmation email sent | user_id=%s", account.id)
 
             return Response({"message": "Payout request created successfully"}, status=200)
 
