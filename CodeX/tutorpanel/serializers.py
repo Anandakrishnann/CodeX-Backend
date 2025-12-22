@@ -212,6 +212,35 @@ class SheduledMeetingsSerializer(serializers.ModelSerializer):
 
 
 
+class PlanSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Plan
+        fields = [
+            "id",
+            "name",
+            "plan_category",
+            "plan_type",
+            "price",
+        ]
+
+
+
+class SubscriptionHistorySerializer(serializers.ModelSerializer):
+    plan = PlanSerializer(read_only=True)
+
+    class Meta:
+        model = TutorSubscription
+        fields = [
+            "id",
+            "plan",
+            "subscribed_on",
+            "expires_on",
+            "is_active",
+            "cancelled",
+        ]
+
+
+
 class WalletTransactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = WalletTransaction

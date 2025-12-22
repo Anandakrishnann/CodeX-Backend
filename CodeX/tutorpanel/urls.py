@@ -5,6 +5,7 @@ from .views import *
 urlpatterns = [
     path('tutor-dashboard/', TutorDashboardView.as_view(), name='tutor_dashboard'),
     path('tutor-profile/', TutorProfileView.as_view(), name='tutor_profile'),
+    path('subscription-history/', SubscriptionHistoryView.as_view(), name='subscription_history'),
     path('tutor-subscribed/', TutorSubscribedCheckView.as_view(), name='tutor_subscribed'),
     path('tutor-application/', TutorApplicationCheckView.as_view(), name='tutor_application'),
     path('edit-tutor/', EditTutorView.as_view(), name='edit_tutor'),

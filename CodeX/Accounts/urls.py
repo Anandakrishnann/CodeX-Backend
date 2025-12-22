@@ -26,6 +26,7 @@ urlpatterns = [
     path("token/refresh/", CustomTokenRefreshView.as_view(), name="token_refresh"),
     path('create-checkout-session/<int:plan_id>/', CreateCheckoutSessionView.as_view(), name='create-checkout'),
     path('stripe-success/', StripeSuccessView.as_view(), name='stripe-success'),
+    path('subscription-cancel/', CancelTutorSubscriptionView.as_view(), name='stripe-success'),
     path("payment_verification/", PaymentVerificationView.as_view(), name="payment_verification"),
     path("paypal_success/", PayPalSuccessView.as_view(), name="paypal_success"),
     path("enrolled-courses/", EnrolledCoursesView.as_view(), name="enrolled_courses"),

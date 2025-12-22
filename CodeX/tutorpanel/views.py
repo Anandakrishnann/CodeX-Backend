@@ -161,6 +161,12 @@ class TutorProfileView(APIView):
             logger.warning(f"TutorDetails not found for user {user.id}")
             return Response({"error": "Tutor Does Not Exists"}, status=status.HTTP_404_NOT_FOUND)
         
+        try:
+            subscription = TutorSubscription.objects.get(tutor=details)
+        except TutorSubscription.DoesNotExist:
+            logger.warning(f"Tutor Subscription plan not found for user {user.id}")
+            return Response({"error": "Tutor Subscription planr Does Not Exists"}, status=status.HTTP_404_NOT_FOUND)
+        
         userData = {
             "first_name":user.first_name,
             "last_name":user.last_name,
@@ -169,6 +175,7 @@ class TutorProfileView(APIView):
             "streak":user.streak,
             "last_completed":user.last_completed_task,
             "profile_picture": profile_picture,
+            "subscribed": subscription.cancelled,
             "dob":details.dob,
             "age": details.get_age(), 
             "about":details.about,
@@ -181,6 +188,42 @@ class TutorProfileView(APIView):
         }
         logger.debug(f"User data retrieved for tutor {user.id}")
         return Response(userData, status=status.HTTP_200_OK)
+
+
+
+class SubscriptionHistoryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role != "tutor":
+            logger.warning("Subscription history access denied: not a tutor")
+            return Response(
+                {"subscriptions": [], "subscribed": False},
+                status=status.HTTP_200_OK
+            )
+
+        try:
+            tutor = TutorDetails.objects.get(account=request.user)
+        except TutorDetails.DoesNotExist:
+            logger.warning(f"TutorDetails not found | user_id={request.user.id}")
+            return Response(
+                {"subscriptions": [], "subscribed": False},
+                status=status.HTTP_200_OK
+            )
+
+        subscriptions = TutorSubscription.objects.filter(
+            tutor=tutor
+        ).order_by("-subscribed_on")
+
+        serializer = SubscriptionHistorySerializer(subscriptions, many=True)
+
+        return Response(
+            {
+                "subscriptions": serializer.data
+            },
+            status=status.HTTP_200_OK
+        )
+
 
 
 

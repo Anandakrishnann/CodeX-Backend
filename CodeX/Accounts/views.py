@@ -1203,6 +1203,108 @@ class StripeSuccessView(APIView):
 
 
 
+class CancelTutorSubscriptionView(APIView):
+    permission_classes = [IsAuthenticatedUser]
+
+    def post(self, request):
+        logger.info(
+            f"Cancel subscription request received | user_id={request.user.id}, role={request.user.role}"
+        )
+
+        try:
+            if request.user.role != "tutor":
+                logger.warning(
+                    f"Unauthorized cancel attempt | user_id={request.user.id}, role={request.user.role}"
+                )
+                return Response(
+                    {"detail": "Only tutors can cancel subscriptions"},
+                    status=403
+                )
+
+            try:
+                tutor = TutorDetails.objects.get(account=request.user)
+                logger.debug(f"TutorDetails found | tutor_id={tutor.id}")
+            except TutorDetails.DoesNotExist:
+                logger.error(
+                    f"TutorDetails not found | user_id={request.user.id}"
+                )
+                return Response(
+                    {"detail": "Tutor profile not found"},
+                    status=404
+                )
+
+            subscription = TutorSubscription.objects.filter(
+                tutor=tutor,
+                is_active=True
+            ).first()
+            
+            subscription.cancelled = True
+            subscription.save()
+
+            if not subscription:
+                logger.warning(
+                    f"No active subscription found | tutor_id={tutor.id}"
+                )
+                return Response(
+                    {"detail": "No active subscription found"},
+                    status=400
+                )
+
+            if not subscription.stripe_subscription_id:
+                logger.error(
+                    f"Stripe subscription ID missing | tutor_id={tutor.id}"
+                )
+                return Response(
+                    {"detail": "Invalid subscription state"},
+                    status=400
+                )
+
+            logger.info(
+                f"Cancelling Stripe subscription at period end | "
+                f"stripe_subscription_id={subscription.stripe_subscription_id}, tutor_id={tutor.id}"
+            )
+
+            stripe.Subscription.modify(
+                subscription.stripe_subscription_id,
+                cancel_at_period_end=True
+            )
+
+            logger.info(
+                f"Stripe subscription marked for cancellation | "
+                f"stripe_subscription_id={subscription.stripe_subscription_id}"
+            )
+
+            return Response(
+                {
+                    "message": "Subscription will be canceled at the end of the billing period",
+                    "expires_on": subscription.expires_on
+                },
+                status=200
+            )
+
+        except stripe.error.StripeError as e:
+            logger.error(
+                f"Stripe error while cancelling subscription | user_id={request.user.id} | error={str(e)}",
+                exc_info=True
+            )
+            return Response(
+                {"detail": "Stripe error while cancelling subscription"},
+                status=400
+            )
+
+        except Exception as e:
+            logger.error(
+                f"Unexpected error during subscription cancellation | user_id={request.user.id}",
+                exc_info=True
+            )
+            return Response(
+                {"detail": "Something went wrong while cancelling subscription"},
+                status=500
+            )
+
+
+
+
 class TutorDetailsView(APIView):
 
     permission_classes = [AllowAny]

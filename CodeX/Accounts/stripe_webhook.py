@@ -11,113 +11,83 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.http import HttpResponse
 from datetime import timedelta
+import logging
+logger = logging.getLogger("codex")
 
-
-
-@method_decorator(csrf_exempt, name='dispatch')
+@method_decorator(csrf_exempt, name="dispatch")
 class StripeWebhookView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
         payload = request.body
-        sig_header = request.META.get('HTTP_STRIPE_SIGNATURE')
+        sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
         webhook_secret = settings.STRIPE_WEBHOOK_SECRET
-        
-        print(f"🔔 Webhook endpoint called")
-        print(f"Payload length: {len(payload)}")
-        print(f"Signature header: {sig_header}")
-        print(f"Webhook secret exists: {bool(webhook_secret)}")
-        if webhook_secret:
-            print(f"Loaded webhook secret: {webhook_secret[:20]}...")
-        else:
-            print("❌ STRIPE_WEBHOOK_SECRET is not set!")
+
+        if not webhook_secret:
+            logger.error("Stripe webhook secret not configured")
             return HttpResponse("Webhook secret not configured", status=500)
-        
+
         try:
-            event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
-            print("✅ Event verified successfully")
+            event = stripe.Webhook.construct_event(
+                payload, sig_header, webhook_secret
+            )
+            logger.info("Stripe webhook signature verified successfully")
         except ValueError as e:
-            print(f"❌ ValueError: {e}")
-            return HttpResponse(f"Invalid payload: {e}", status=400)
-        except stripe.error.SignatureVerificationError as e:
-            print(f"❌ Signature verification failed: {e}")
-            return HttpResponse(f"Invalid signature: {e}", status=400)
+            logger.error("Invalid Stripe webhook payload", exc_info=True)
+            return HttpResponse("Invalid payload", status=400)
+        except stripe.error.SignatureVerificationError:
+            logger.error("Stripe webhook signature verification failed", exc_info=True)
+            return HttpResponse("Invalid signature", status=400)
 
-        print(f"🔔 Webhook received: {event['type']}")
+        event_type = event.get("type")
+        logger.info("Stripe webhook received | event_type=%s", event_type)
 
-        if event['type'] == 'checkout.session.completed':
-            session = event['data']['object']
-            tutor_id = session.get('client_reference_id')
-            metadata = session.get('metadata') or {}
-            plan_id = metadata.get('plan_id')
-            email = (session.get('customer_details') or {}).get('email')
-            subscription_id = session.get('subscription')
-            customer_id = session.get('customer')
+        if event_type == "checkout.session.completed":
+            session = event["data"]["object"]
 
-            # Debug the raw session content for visibility
+            tutor_id = session.get("client_reference_id")
+            metadata = session.get("metadata") or {}
+            plan_id = metadata.get("plan_id")
+            subscription_id = session.get("subscription")
+            customer_id = session.get("customer")
+
+            if not tutor_id or not plan_id:
+                logger.warning(
+                    "Stripe webhook missing required data | tutor_id=%s | plan_id=%s",
+                    tutor_id,
+                    plan_id,
+                )
+                return HttpResponse(status=200)
+
             try:
-                import json
-                print(f"📦 Session object: {json.dumps(session, indent=2)}")
-            except Exception:
-                print("📦 Session object could not be JSON-dumped (non-serializable types present)")
+                plan = Plan.objects.get(id=plan_id)
+                account = Accounts.objects.get(id=tutor_id)
+                tutor = TutorDetails.objects.get(account=account)
 
-            print(f"🔎 Extracted tutor_id={tutor_id}, plan_id={plan_id}, email={email}")
-            print(f"🔎 Stripe customer={customer_id}, subscription={subscription_id}")
-
-            try:
-                if not plan_id:
-                    print("❌ Missing plan_id in session metadata")
-                    return HttpResponse("Missing plan_id", status=200)
-
-                if not tutor_id:
-                    print("❌ Missing client_reference_id (tutor_id) in session")
-                    return HttpResponse("Missing tutor_id", status=200)
-
-                try:
-                    plan = Plan.objects.get(id=plan_id)
-                except Plan.DoesNotExist:
-                    print(f"❌ Plan not found for id={plan_id}")
-                    return HttpResponse("Plan not found", status=200)
-
-                try:
-                    account = Accounts.objects.get(id=tutor_id)
-                except Accounts.DoesNotExist:
-                    print(f"❌ Account not found for id={tutor_id}")
-                    return HttpResponse("Account not found", status=200)
-
-                try:
-                    tutor = TutorDetails.objects.get(account=account)
-                except TutorDetails.DoesNotExist:
-                    print(f"❌ TutorDetails not found for account id={account.id}")
-                    return HttpResponse("TutorDetails not found", status=200)
-
-                if plan.plan_type == 'MONTHLY':
+                if plan.plan_type == "MONTHLY":
                     expires_on = now() + timedelta(days=30)
-                elif plan.plan_type == 'YEARLY':
+                elif plan.plan_type == "YEARLY":
                     expires_on = now() + timedelta(days=365)
                 else:
                     expires_on = now()
 
-                print(f"🧮 Calculated expires_on={expires_on} for plan_type={plan.plan_type}")
-
-                sub_obj, created = TutorSubscription.objects.update_or_create(
+                subscription, created = TutorSubscription.objects.update_or_create(
                     tutor=tutor,
                     defaults={
-                        'plan': plan,
-                        'subscribed_on': now(),
-                        'expires_on': expires_on,
-                        'is_active': True,
-                        'stripe_customer_id': customer_id,
-                        'stripe_subscription_id': subscription_id,
-                    }
+                        "plan": plan,
+                        "subscribed_on": now(),
+                        "expires_on": expires_on,
+                        "is_active": True,
+                        "stripe_customer_id": customer_id,
+                        "stripe_subscription_id": subscription_id,
+                    },
                 )
-                
-                wallet, _ = PlatformWallet.objects.get_or_create(pk=1)
 
+                wallet, _ = PlatformWallet.objects.get_or_create(pk=1)
                 wallet.total_revenue += plan.price
                 wallet.save()
-                
+
                 PlatformWalletTransaction.objects.create(
                     wallet=wallet,
                     amount=plan.price,
@@ -126,17 +96,44 @@ class StripeWebhookView(APIView):
                     tutor=tutor,
                 )
 
-                print(f"✅ Subscription {'created' if created else 'updated'} for {email} | tutor_id={tutor_id}")
-                print(f"✅ Stored values: plan={plan.id}, is_active={sub_obj.is_active}, expires_on={sub_obj.expires_on}, stripe_sub={sub_obj.stripe_subscription_id}")
+                logger.info(
+                    "Tutor subscription updated successfully | tutor_id=%s | plan_id=%s",
+                    tutor.id,
+                    plan.id,
+                )
 
-            except Exception as e:
-                print(f"❌ Error storing subscription: {e}")
-                import traceback
-                print(f"Traceback: {traceback.format_exc()}")
-                return HttpResponse(f"Error: {str(e)}", status=400)
+            except Plan.DoesNotExist:
+                logger.warning("Plan not found | plan_id=%s", plan_id)
+            except Accounts.DoesNotExist:
+                logger.warning("Account not found | account_id=%s", tutor_id)
+            except TutorDetails.DoesNotExist:
+                logger.warning("Tutor details not found | account_id=%s", tutor_id)
+            except Exception:
+                logger.exception("Error processing checkout.session.completed webhook")
+
+        elif event_type == "customer.subscription.deleted":
+            subscription_data = event["data"]["object"]
+            stripe_subscription_id = subscription_data.get("id")
+
+            try:
+                subscription = TutorSubscription.objects.get(
+                    stripe_subscription_id=stripe_subscription_id
+                )
+                subscription.is_active = False
+                subscription.save()
+
+                logger.info(
+                    "Tutor subscription deactivated | stripe_subscription_id=%s",
+                    stripe_subscription_id,
+                )
+
+            except TutorSubscription.DoesNotExist:
+                logger.warning(
+                    "Subscription not found for deletion | stripe_subscription_id=%s",
+                    stripe_subscription_id,
+                )
 
         else:
-            # Log other event types for visibility during debugging
-            print(f"ℹ️ Ignored event type: {event['type']}")
+            logger.info("Unhandled Stripe event type | event_type=%s", event_type)
 
         return HttpResponse(status=200)

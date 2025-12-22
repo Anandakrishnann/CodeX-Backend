@@ -132,12 +132,13 @@ class TutorDetails(models.Model):
 
 
 class TutorSubscription(models.Model):
-    tutor = models.OneToOneField(TutorDetails, on_delete=models.CASCADE)
+    tutor = models.ForeignKey(TutorDetails, on_delete=models.CASCADE, related_name="subscriptions")
     plan = models.ForeignKey(Plan, on_delete=models.SET_NULL, null=True)
     subscribed_on = models.DateTimeField(auto_now_add=True)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_on = models.DateTimeField()
     is_active = models.BooleanField(default=True)
+    cancelled = models.BooleanField(default=False)
     
     # Stripe integration
     stripe_subscription_id = models.CharField(max_length=255, null=True, blank=True)
