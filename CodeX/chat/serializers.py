@@ -13,7 +13,6 @@ class AccountsSerializer(serializers.ModelSerializer):
         fields = ['id', 'first_name', 'last_name', 'role']
 
     def to_representation(self, instance):
-        # Ensure participant data is always valid
         data = super().to_representation(instance)
         data['first_name'] = data['first_name'] or "Unknown"
         data['last_name'] = data['last_name'] or "User"
@@ -22,42 +21,59 @@ class AccountsSerializer(serializers.ModelSerializer):
 
 
 class ChatRoomSerializer(serializers.ModelSerializer):
-    participants = AccountsSerializer(many=True, read_only=True)
     receiver_name = serializers.SerializerMethodField()
+    unread_count = serializers.SerializerMethodField()
+    last_message = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatRoom
-        fields = ['id', 'participants', 'created_at', 'receiver_name']
+        fields = ["id", "created_at", "receiver_name", "unread_count", "last_message"]
 
     def get_receiver_name(self, obj):
-        request = self.context.get('request')
-        if not request or not request.user.is_authenticated:
-            logger.warning(f"No authenticated user for room {obj.id}")
-            return "Chat Room"
-
+        request = self.context.get("request")
         current_user = request.user
-        current_user_name = f"{current_user.first_name} {current_user.last_name}".strip().lower()
-        logger.debug(f"Room {obj.id} - Current user: {current_user.id}, name: {current_user_name}")
+        receiver = obj.tutor if obj.user == current_user else obj.user
+        return f"{receiver.first_name or 'Unknown'} {receiver.last_name or 'User'}".strip()
 
-        participants = obj.participants.all()
-        if len(participants) < 2:
-            logger.warning(f"Room {obj.id} has fewer than 2 participants: {[p.id for p in participants]}")
-            return "Chat Room"
+    def get_unread_count(self, obj):
+        request = self.context.get("request")
+        current_user = request.user
+        
+        other_user = obj.tutor if obj.user == current_user else obj.user
+        
+        return Message.objects.filter(
+            room=obj,
+            sender=other_user,
+            is_read=False
+        ).count()
 
-        for participant in participants:
-            first_name = participant.first_name or "Unknown"
-            last_name = participant.last_name or "User"
-            participant_name = f"{first_name} {last_name}".strip().lower()
-            logger.debug(f"Room {obj.id} - Participant {participant.id}: {participant_name}")
-            if participant_name != current_user_name:
-                return f"{first_name} {last_name}".strip()
-        logger.warning(f"Room {obj.id} - No receiver found, participants: {[p.id for p in participants]}")
-        return "Chat Room"
+    def get_last_message(self, obj):
+        last_msg = Message.objects.filter(room=obj).order_by('-timestamp').first()
+        
+        if not last_msg:
+            return None
+            
+        return {
+            'content': last_msg.content,
+            'timestamp': last_msg.timestamp.strftime("%H:%M"),
+            'is_read': last_msg.is_read,
+        }
+
 
 
 
 class MessageSerializer(serializers.ModelSerializer):
-    sender = serializers.StringRelatedField()
+    sender = serializers.SerializerMethodField()
+    sender_id = serializers.IntegerField(source='sender.id', read_only=True)
+    
     class Meta:
         model = Message
-        fields = ['id', 'room', 'sender', 'content', 'message_type', 'timestamp', 'is_read']
+        fields = ['id', 'room', 'sender', 'sender_id', 'content', 'message_type', 'timestamp', 'is_read']
+    
+    def get_sender(self, obj):
+        return {
+            'id': obj.sender.id,
+            'first_name': obj.sender.first_name,
+            'last_name': obj.sender.last_name,
+            'role': obj.sender.role
+        }

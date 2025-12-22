@@ -4,13 +4,13 @@ from Accounts.models import *
 # Create your models here.
 
 class ChatRoom(models.Model):
-    participants = models.ManyToManyField(Accounts, related_name="chat_rooms")
+    user = models.ForeignKey(Accounts, on_delete=models.CASCADE, related_name="user_rooms")
+    tutor = models.ForeignKey(Accounts, on_delete=models.CASCADE, related_name="tutor_rooms")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        indexes = [
-            models.Index(fields=['created_at']),
-        ]
+        unique_together = ("user", "tutor")
+
 
 
 class Message(models.Model):

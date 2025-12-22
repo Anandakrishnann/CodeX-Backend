@@ -93,7 +93,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
         room = ChatRoom.objects.get(id=room_id)
         sender = Accounts.objects.get(id=sender_id)
 
-        Message.objects.create(room=room, sender=sender, content=content)
+        if sender not in [room.user, room.tutor]:
+            raise PermissionError("Sender not part of room")
+
+        Message.objects.create(
+            room=room,
+            sender=sender,
+            content=content
+        )
 
 
 # ----------------------------------------------------------
