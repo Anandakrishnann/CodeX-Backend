@@ -201,7 +201,7 @@ DATABASES = {
         "USER": os.getenv("DB_USER"),
         "PASSWORD": os.getenv("DB_PASSWORD"),
         "HOST": os.getenv("DB_HOST"),
-        "PORT": os.getenv("DB_PORT", cast=int),
+        "PORT": int(os.getenv("DB_PORT", 5432)),
     }
 }
 
@@ -285,26 +285,25 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100MB limit
 TIME_ZONE = 'Asia/Kolkata'  # Set to IST
 USE_TZ = True
 
-REDIS_HOST = os.getenv("REDIS_HOST", default="127.0.0.1")
-REDIS_PORT = os.getenv("REDIS_PORT", default=6379, cast=int)
+REDIS_HOST = os.getenv("REDIS_HOST", "127.0.0.1")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 
-CELERY_BROKER_DB = os.getenv("CELERY_BROKER_DB", default=0, cast=int)
-CELERY_RESULT_DB = os.getenv("CELERY_RESULT_DB", default=0, cast=int)
-CELERY_CACHE_DB = os.getenv("CELERY_CACHE_DB", default=1, cast=int)
+CELERY_BROKER_DB = int(os.getenv("CELERY_BROKER_DB", 0))
+CELERY_RESULT_DB = int(os.getenv("CELERY_RESULT_DB", 0))
+CELERY_CACHE_DB = int(os.getenv("CELERY_CACHE_DB", 1))
 
 CELERY_BROKER_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/{CELERY_BROKER_DB}"
 CELERY_RESULT_BACKEND = f"redis://{REDIS_HOST}:{REDIS_PORT}/{CELERY_RESULT_DB}"
 
-CELERY_TASK_SERIALIZER = os.getenv("CELERY_TASK_SERIALIZER")
-CELERY_RESULT_SERIALIZER = os.getenv("CELERY_RESULT_SERIALIZER")
-CELERY_ACCEPT_CONTENT = [os.getenv("CELERY_ACCEPT_CONTENT")]
+CELERY_TASK_SERIALIZER = os.getenv("CELERY_TASK_SERIALIZER", "pickle")
+CELERY_RESULT_SERIALIZER = os.getenv("CELERY_RESULT_SERIALIZER", "pickle")
+CELERY_ACCEPT_CONTENT = [os.getenv("CELERY_ACCEPT_CONTENT", "application/x-python-serialize")]
 
-CELERY_TIMEZONE = os.getenv("CELERY_TIMEZONE")
-CELERY_ENABLE_UTC = os.getenv("CELERY_ENABLE_UTC", cast=bool)
+CELERY_TIMEZONE = os.getenv("CELERY_TIMEZONE", "Asia/Kolkata")
+CELERY_ENABLE_UTC = os.getenv("CELERY_ENABLE_UTC", "False") == "True"
 
-CELERY_TASK_TRACK_STARTED = os.getenv("CELERY_TASK_TRACK_STARTED", cast=bool)
-CELERY_TASK_SOFT_TIME_LIMIT = os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", cast=int)
-
+CELERY_TASK_TRACK_STARTED = os.getenv("CELERY_TASK_TRACK_STARTED", "True") == "True"
+CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", 300))
 
 CHANNEL_LAYERS = {
     "default": {
@@ -325,6 +324,8 @@ CACHES = {
         }
     }
 }
+
+
 
 
 ZEGOCLOUD_APP_ID = os.getenv("ZEGOCLOUD_APP_ID")

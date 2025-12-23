@@ -1150,7 +1150,7 @@ class StripeSuccessView(APIView):
                     }
                 )
                 
-                logger.info(f"Subscription {'created' if created else 'updated'}: {subscription}")e
+                logger.info(f"Subscription {'created' if created else 'updated'}: {subscription}")
                 return redirect(redirect_url)
                 
             except Exception as e:
