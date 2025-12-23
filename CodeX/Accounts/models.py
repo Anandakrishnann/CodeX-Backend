@@ -290,7 +290,7 @@ class TutorReport(models.Model):
 
     class Meta:
         db_table = "tutor_reports"
-        unique_together = ("tutor", "user")  # prevent duplicate reports
+        unique_together = ("tutor", "user")
         indexes = [
             models.Index(fields=['tutor']),
             models.Index(fields=['user']),

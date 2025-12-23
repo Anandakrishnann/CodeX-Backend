@@ -82,18 +82,44 @@ def send_meeting_confirmation_email(meeting_id, type="scheduled", user_id=None):
 
 @shared_task
 def mark_meeting_completed(booking_id):
-    print(f"🚀 mark_meeting_completed STARTED {booking_id} at {now()}")
+    logger.info(
+        "mark_meeting_completed task started | booking_id=%s | time=%s",
+        booking_id,
+        now()
+    )
+
     try:
         booking = MeetingBooking.objects.get(id=booking_id)
-        booking.meeting_completed = True
-        booking.save()
-        print(f"✅ Meeting {booking_id} marked as completed.")
-    except MeetingBooking.DoesNotExist:
-        print(f"❌ Booking {booking_id} not found.")
-    except Exception as e:
-        print(f"🔥 ERROR in mark_meeting_completed: {e}")
-        traceback.print_exc()
 
+        if booking.meeting_completed:
+            logger.warning(
+                "Meeting already marked completed | booking_id=%s",
+                booking_id
+            )
+            return
+
+        booking.meeting_completed = True
+        booking.save(update_fields=["meeting_completed"])
+
+        logger.info(
+            "Meeting marked as completed successfully | booking_id=%s",
+            booking_id
+        )
+
+    except MeetingBooking.DoesNotExist:
+        logger.warning(
+            "MeetingBooking not found | booking_id=%s",
+            booking_id
+        )
+
+    except Exception as exc:
+        logger.error(
+            "Error in mark_meeting_completed task | booking_id=%s | error=%s",
+            booking_id,
+            str(exc),
+            exc_info=True
+        )
+        raise exc
 
 
 @shared_task

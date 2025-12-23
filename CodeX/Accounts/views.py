@@ -10,19 +10,15 @@ from django.shortcuts import redirect
 from random import randint
 from .models import *
 import re
-from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.views import TokenRefreshView
 from django.core.exceptions import ObjectDoesNotExist
-from django.utils.crypto import get_random_string
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.core.mail import send_mail
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes
 from django.contrib.auth.hashers import make_password
 from django.core.mail import EmailMultiAlternatives
-from django.template.loader import render_to_string
-from django.utils.timezone import localtime
 from django.utils.timezone import now
 from adminpanel.models import *
 from tutorpanel.models import *
@@ -32,23 +28,14 @@ import logging
 import requests
 from django.conf import settings
 import cloudinary.uploader
-from .utils.certificate import generate_certificate_image
-from django.core.mail import EmailMessage
-from django.http import FileResponse
-from PIL import Image, ImageDraw, ImageFont
 from django.http import HttpResponse, Http404
 from datetime import datetime, timedelta
-from io import BytesIO
-import stripe # type: ignore
-import traceback
-from rest_framework.decorators import api_view, permission_classes, authentication_classes
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
+import stripe # type: ignore    
 from django.utils.timezone import make_aware
 from .permissions import IsAuthenticatedUser
 from .tasks import *
 from django.core.cache import cache
-import hashlib, random
+import hashlib
 from decimal import Decimal
 import os
 
@@ -82,22 +69,18 @@ class UserRegisterView(APIView):
                 logger.warning("Registration failed: User already exists | email_hash=%s", hashlib.sha256(email.encode()).hexdigest()[:16])
                 return Response({"error": "User already exists"}, status=400)
 
-            # Generate OTP
             otp = randint(100000, 999999)
             otp_hash = hashlib.sha256(str(otp).encode()).hexdigest()
 
-            # Store user data for 10 minutes
             reg_key = f"pending_register:{email}"
             cache.set(reg_key, {
                 "user_data": user_data,
                 "attempts": 0
-            }, timeout=600)  # 10 minutes
+            }, timeout=600)
 
-            # Store OTP for 2 minutes
             otp_key = f"otp:{email}"
-            cache.set(otp_key, otp_hash, timeout=120)  # 2 minutes
+            cache.set(otp_key, otp_hash, timeout=120)
 
-            # Sending Email
             try:
                 send_mail(
                     subject="🔐 CodeXLearning | Your OTP for Email Verification",
@@ -167,7 +150,6 @@ class OTPVerificationView(APIView):
                 logger.warning("Invalid OTP attempt | email_hash=%s | attempts=%s", hashlib.sha256(email.encode()).hexdigest()[:16], data['attempts'])
                 return Response({"error": "Invalid OTP"}, status=400)
 
-            # OTP correct --> create user
             user_data = data["user_data"]
             password = user_data.pop("password")
 
@@ -176,7 +158,6 @@ class OTPVerificationView(APIView):
             user.is_active = True
             user.save()
 
-            # Cleanup
             cache.delete(reg_key)
             cache.delete(otp_key)
 
@@ -220,11 +201,11 @@ class ResendOTPView(APIView):
                 logger.warning("Resend OTP failed - no pending registration | email_hash=%s", hashlib.sha256(email.encode()).hexdigest()[:16])
                 return Response({"error": "No pending registration found"}, status=400)
 
-            # Generate new OTP
+
             otp = randint(100000, 999999)
             otp_hash = hashlib.sha256(str(otp).encode()).hexdigest()
 
-            # Save OTP for 2 minutes
+
             cache.set(otp_key, otp_hash, timeout=120)
 
             cache.set(reg_key, data, timeout=600)
@@ -368,7 +349,7 @@ class LoginView(APIView):
                 httponly=True,
                 secure=True,
                 samesite="None",
-                max_age=1800  # 30 minutes
+                max_age=1800
             )
 
             response.set_cookie(
@@ -377,7 +358,7 @@ class LoginView(APIView):
                 httponly=True,
                 secure=True,
                 samesite="None",
-                max_age=90000  # 1 day and 30 minutes
+                max_age=90000
             )
 
             return response
@@ -501,10 +482,8 @@ class CustomTokenRefreshView(TokenRefreshView):
         if not refresh_token:
             return Response({"error": "Refresh token missing"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        # ✅ Manually add refresh token to request data
         request.data["refresh"] = refresh_token
         
-        # Call parent post method
         response = super().post(request, *args, **kwargs)
 
         if "access" in response.data:
@@ -514,7 +493,7 @@ class CustomTokenRefreshView(TokenRefreshView):
                 httponly=True,
                 secure=True,
                 samesite="None",
-                max_age=1800,  # 30 minutes
+                max_age=1800,
             )
             
         else:
@@ -539,14 +518,13 @@ class LogoutView(APIView):
 
         response = Response({"message": "Logout successful"}, status=status.HTTP_200_OK)
 
-        # ✅ Set access_token and refresh_token to empty strings
         response.set_cookie(
             key="access_token",
             value="",
             httponly=True,
             secure=True,
             samesite="None",
-            expires=0  # Expire immediately
+            expires=0
         )
         response.set_cookie(
             key="refresh_token",
@@ -554,7 +532,7 @@ class LogoutView(APIView):
             httponly=True,
             secure=True,
             samesite="None",
-            expires=0  # Expire immediately
+            expires=0
         )
 
         return response
@@ -649,7 +627,6 @@ class UserDashboardView(APIView):
         user = request.user
         logger.debug("User dashboard accessed | user_id=%s", user.id)
 
-        # ======== Basic Stats ========
         active_courses = UserCourseEnrollment.objects.filter(user=user, status='progress').count()
         completed_courses = UserCourseEnrollment.objects.filter(user=user, status='completed').count()
         logger.debug(f"Active Courses: {active_courses}")
@@ -658,7 +635,6 @@ class UserDashboardView(APIView):
         achievements = 0  
         day_streak = 0   
 
-        # ======== Current Active Course ========
         current_enrollment = (
             UserCourseEnrollment.objects
             .filter(user=user, status='progress')
@@ -672,7 +648,6 @@ class UserDashboardView(APIView):
             course = current_enrollment.course
             logger.debug(f"Current Course: {course.title} {course.id}")
 
-            # Debugging module & lesson queries
             total_modules = ModuleProgress.objects.filter(module__course=course, user=user).count()
             total_lessons = LessonProgress.objects.filter(lesson__module__course=course, user=user).count()
             logger.debug(f"Total Modules: {total_modules}")
@@ -699,7 +674,6 @@ class UserDashboardView(APIView):
         else:
             logger.warning("No current active course found for user")
 
-        # ======== All Completed Courses ========
         completed_enrollments = (
             UserCourseEnrollment.objects
             .filter(user=user, status='completed')
@@ -718,8 +692,7 @@ class UserDashboardView(APIView):
                 "completed_on": enrollment.completed_at,
             })
 
-        # ======== Final Response ========
-        # Backward compatibility: also expose the first completed course as completed_course
+
         first_completed = completed_courses_list[0] if completed_courses_list else None
 
         response = {
@@ -788,7 +761,7 @@ class UploadUserProfilePictureView(APIView):
     permission_classes = [IsAuthenticatedUser]
     def post(self, request):
         try:
-            user = request.user  # Already authenticated user
+            user = request.user
             profile_picture = request.FILES.get("profilePicture")
 
             if not profile_picture:
@@ -865,7 +838,6 @@ class TutorHomeView(APIView):
         try:
             user = request.user
 
-            # Defaults
             subscribed = False
             plan_details = None
             categories = CourseCategorySerializer(
@@ -873,13 +845,11 @@ class TutorHomeView(APIView):
                 many=True
             ).data
 
-            # Check TutorDetails
             try:
                 tutor_details = TutorDetails.objects.get(account=user)
             except TutorDetails.DoesNotExist:
                 tutor_details = None
 
-            # If tutor exists, load subscription details
             if tutor_details:
                 try:
                     subscription = TutorSubscription.objects.get(tutor=tutor_details)
@@ -898,9 +868,8 @@ class TutorHomeView(APIView):
                             "subscribed_on": subscription.subscribed_on,
                         }
                 except TutorSubscription.DoesNotExist:
-                    pass  # No subscription for tutor
-
-            # Always return user object
+                    pass  
+                
             return Response({
                 "message": "Success",
                 "user": {
@@ -1099,7 +1068,7 @@ class CreateCheckoutSessionView(APIView):
 
     def post(self, request, plan_id):
         plan = get_object_or_404(Plan, id=plan_id)
-        domain = "http://localhost:3000"
+        domain = os.getenv("DOMAIN")
 
         if request.user.role != "tutor":
             return Response({"detail": "Only tutors can subscribe."}, status=403)
@@ -1139,17 +1108,16 @@ class StripeSuccessView(APIView):
     permission_classes = [AllowAny]
     
     def get(self, request):
+        domain = os.getenv("DOMAIN")
         session_id = request.GET.get('session_id')
-        redirect_url = request.GET.get('redirect', 'http://localhost:3000/success')
+        redirect_url = request.GET.get('redirect', f'{domain}/success')
         
         if not session_id:
             return Response({"error": "No session ID provided"}, status=400)
         
         try:
-            # Retrieve the checkout session from Stripe
             session = stripe.checkout.Session.retrieve(session_id)
             
-            # Extract data from the session
             tutor_id = session.get('client_reference_id')
             metadata = session.get('metadata') or {}
             plan_id = metadata.get('plan_id')
@@ -1159,12 +1127,10 @@ class StripeSuccessView(APIView):
             logger.info(f"Success page accessed with session_id={session_id}, tutor_id={tutor_id}, plan_id={plan_id}")
             
             try:
-                # Get the objects
                 plan = Plan.objects.get(id=plan_id)
                 account = Accounts.objects.get(id=tutor_id)
                 tutor = TutorDetails.objects.get(account=account)
                 
-                # Calculate expiration date
                 if plan.plan_type == 'MONTHLY':
                     expires_on = now() + timedelta(days=30)
                 elif plan.plan_type == 'YEARLY':
@@ -1172,7 +1138,6 @@ class StripeSuccessView(APIView):
                 else:
                     expires_on = now()
                 
-                # Create or update subscription
                 subscription, created = TutorSubscription.objects.update_or_create(
                     tutor=tutor,
                     defaults={
@@ -1185,16 +1150,13 @@ class StripeSuccessView(APIView):
                     }
                 )
                 
-                logger.info(f"Subscription {'created' if created else 'updated'}: {subscription}")
-                
-                # Redirect to frontend success page
+                logger.info(f"Subscription {'created' if created else 'updated'}: {subscription}")e
                 return redirect(redirect_url)
                 
             except Exception as e:
                 logger.error(f"Error creating subscription: {e}")
                 import traceback
                 traceback.print_exc()
-                # Still redirect even on error
                 return redirect(f"{redirect_url}?error={str(e)}")
                 
         except stripe.error.StripeError as e:
@@ -1735,7 +1697,6 @@ class StartModuleView(APIView):
         course = module.course
         user = request.user
 
-        # Ensure user is enrolled in the course
         try:
             enrollment = UserCourseEnrollment.objects.get(user=user, course=course)
         except UserCourseEnrollment.DoesNotExist:
@@ -1746,7 +1707,6 @@ class StartModuleView(APIView):
             enrollment.status = "progress"
             enrollment.save()
 
-        # Check for existing progress in this course
         existing_progress = ModuleProgress.objects.filter(
             user=user,
             module__course=course,
@@ -1827,7 +1787,6 @@ class StartedModuleLessonsView(APIView):
         ).count()
         progress = (completed_lessons / total_lessons) * 100 if total_lessons > 0 else 0
 
-        # Ensure module progress exists
         ModuleProgress.objects.get_or_create(user=user, module=module)
 
         data = []
@@ -1870,7 +1829,6 @@ class StartLessonView(APIView):
 
             lesson = Lessons.objects.get(id=lesson_id)
 
-            # Check if any other lesson is in progress
             existing_progress = LessonProgress.objects.filter(user=user, status='progress').exclude(lesson=lesson).first()
             if existing_progress:
                 return Response({
@@ -1878,7 +1836,6 @@ class StartLessonView(APIView):
                     "current_lesson_id": existing_progress.lesson.id
                 }, status=400)
 
-            # Get or create the current lesson progress
             progress, created = LessonProgress.objects.get_or_create(user=user, lesson=lesson)
             progress.status = 'progress'
             progress.started_at = now()
@@ -2006,9 +1963,7 @@ class GenerateCertificateView(APIView):
             image = Image.new("RGB", (width, height), color=(255, 255, 255))
             draw = ImageDraw.Draw(image)
 
-            # Fonts - with better fallback handling
             try:
-                # Try to use system fonts that are more likely to be available
                 heading_font = ImageFont.truetype("Arial Bold", 72)
                 subheading_font = ImageFont.truetype("Arial Bold", 48)
                 italic_font = ImageFont.truetype("Arial Italic", 42)
@@ -2019,7 +1974,6 @@ class GenerateCertificateView(APIView):
                 small_font = ImageFont.truetype("Arial", 24)
                 tiny_font = ImageFont.truetype("Arial", 18)
             except:
-                # If specific fonts fail, try generic ones
                 try:
                     heading_font = ImageFont.truetype("arial.ttf", 72)
                     subheading_font = ImageFont.truetype("arial.ttf", 48)
@@ -2049,81 +2003,62 @@ class GenerateCertificateView(APIView):
                 x = (width - w) / 2
                 
                 if shadow:
-                    # Use solid color for shadow instead of rgba which might not be supported
                     draw.text((x+2, y+2), text, fill=(0, 0, 0), font=font)
                 
                 draw.text((x, y), text, fill=color, font=font)
-                return y + bbox[3] - bbox[1] + 10  # Return the y position after this text
+                return y + bbox[3] - bbox[1] + 10
 
-            # Create elegant background with subtle pattern
-            # Add a light parchment texture - simplified to avoid performance issues
             for i in range(0, width, 20):
                 for j in range(0, height, 20):
                     noise = random.randint(245, 255)
                     draw.point((i, j), fill=(noise, noise, noise-5))
 
-            # Elegant border
             margin = 60
             border_width = 6
             
-            # Main border
             draw.rectangle([margin, margin, width-margin, height-margin], 
                           outline=(120, 120, 120), width=border_width)
             
-            # Inner decorative border
             draw.rectangle([margin+20, margin+20, width-margin-20, height-margin-20], 
                           outline=(0, 100, 0), width=3)
             
-            # Ornate corners - simplified
             corner_size = 80
             
-            # Top-left corner
             draw.arc([margin+30, margin+30, margin+30+corner_size*2, margin+30+corner_size*2], 
                     180, 270, fill=(0, 120, 0), width=3)
             
-            # Top-right corner
             draw.arc([width-margin-30-corner_size*2, margin+30, width-margin-30, margin+30+corner_size*2], 
                     270, 360, fill=(0, 120, 0), width=3)
             
-            # Bottom-left corner
             draw.arc([margin+30, height-margin-30-corner_size*2, margin+30+corner_size*2, height-margin-30], 
                     90, 180, fill=(0, 120, 0), width=3)
             
-            # Bottom-right corner
             draw.arc([width-margin-30-corner_size*2, height-margin-30-corner_size*2, width-margin-30, height-margin-30], 
                     0, 90, fill=(0, 120, 0), width=3)
 
-            # ENHANCED MEDAL with more detail and dimension
             medal_x, medal_y = 150, 150
             medal_size = 120
             
-            # Create a more detailed gold medal with multiple layers and shading
-            # Outer rim with gradient effect
             for r in range(medal_size, medal_size-10, -1):
-                # Create gold gradient from outer to inner
                 gold_shade = 200 + (medal_size - r) * 5
                 if gold_shade > 255: gold_shade = 255
                 draw.ellipse([medal_x-r, medal_y-r, medal_x+r, medal_y+r], 
                             fill=(gold_shade, int(gold_shade*0.8), 0))
             
-            # Main medal body
             draw.ellipse([medal_x-medal_size+10, medal_y-medal_size+10, 
                          medal_x+medal_size-10, medal_y+medal_size-10], 
                         fill=(255, 215, 0))
             
-            # Add a decorative ring
             draw.ellipse([medal_x-medal_size+15, medal_y-medal_size+15, 
                          medal_x+medal_size-15, medal_y+medal_size-15], 
                         outline=(212, 175, 55), width=3)
             
-            # Inner circle with gradient
             for r in range(int(medal_size*0.7), int(medal_size*0.4), -1):
                 gold_shade = 255 - (int(medal_size*0.7) - r) * 2
                 if gold_shade < 220: gold_shade = 220
                 draw.ellipse([medal_x-r, medal_y-r, medal_x+r, medal_y+r], 
                             fill=(gold_shade, int(gold_shade*0.85), 0))
             
-            # Add decorative dots around the medal
             num_dots = 24
             dot_radius = 5
             dot_distance = medal_size - 20
@@ -2135,36 +2070,30 @@ class GenerateCertificateView(APIView):
                              dot_x+dot_radius, dot_y+dot_radius], 
                             fill=(212, 175, 55))
             
-            # Enhanced star with more points and detail
             star_points = []
             star_size = medal_size * 0.5
-            num_points = 16  # More points for a more detailed star
+            num_points = 16
             for i in range(num_points*2):
                 angle = math.pi/2 + i * math.pi/num_points
-                r = star_size if i % 2 == 0 else star_size * 0.6  # Less dramatic difference for smoother star
+                r = star_size if i % 2 == 0 else star_size * 0.6 
                 x = medal_x + r * math.cos(angle)
                 y = medal_y + r * math.sin(angle)
                 star_points.append((x, y))
             
-            # Draw star with gradient fill
             draw.polygon(star_points, fill=(255, 223, 0))
             
-            # Add highlight to star center
             draw.ellipse([medal_x-star_size*0.2, medal_y-star_size*0.2, 
                          medal_x+star_size*0.2, medal_y+star_size*0.2], 
                         fill=(255, 240, 150))
             
-            # Enhanced ribbons with more detail
-            # Left ribbon with fold detail
             ribbon_points1 = [
-                (medal_x-medal_size*0.3, medal_y+medal_size*0.8),  # Top connection
-                (medal_x-medal_size*0.7, medal_y+medal_size*1.5),  # Bottom outer
-                (medal_x-medal_size*0.5, medal_y+medal_size*1.3),  # Fold point
-                (medal_x-medal_size*0.1, medal_y+medal_size*1.2),  # Bottom inner
+                (medal_x-medal_size*0.3, medal_y+medal_size*0.8),  
+                (medal_x-medal_size*0.7, medal_y+medal_size*1.5),  
+                (medal_x-medal_size*0.5, medal_y+medal_size*1.3),  
+                (medal_x-medal_size*0.1, medal_y+medal_size*1.2),  
             ]
             draw.polygon(ribbon_points1, fill=(180, 0, 0))
             
-            # Add highlight to left ribbon
             highlight_points1 = [
                 (medal_x-medal_size*0.3, medal_y+medal_size*0.8),
                 (medal_x-medal_size*0.6, medal_y+medal_size*1.4),
@@ -2172,16 +2101,14 @@ class GenerateCertificateView(APIView):
             ]
             draw.polygon(highlight_points1, fill=(220, 0, 0))
             
-            # Right ribbon with fold detail
             ribbon_points2 = [
-                (medal_x+medal_size*0.3, medal_y+medal_size*0.8),  # Top connection
-                (medal_x+medal_size*0.7, medal_y+medal_size*1.5),  # Bottom outer
-                (medal_x+medal_size*0.5, medal_y+medal_size*1.3),  # Fold point
-                (medal_x+medal_size*0.1, medal_y+medal_size*1.2),  # Bottom inner
+                (medal_x+medal_size*0.3, medal_y+medal_size*0.8),
+                (medal_x+medal_size*0.7, medal_y+medal_size*1.5),
+                (medal_x+medal_size*0.5, medal_y+medal_size*1.3),
+                (medal_x+medal_size*0.1, medal_y+medal_size*1.2),
             ]
             draw.polygon(ribbon_points2, fill=(180, 0, 0))
             
-            # Add highlight to right ribbon
             highlight_points2 = [
                 (medal_x+medal_size*0.3, medal_y+medal_size*0.8),
                 (medal_x+medal_size*0.6, medal_y+medal_size*1.4),
@@ -2189,13 +2116,10 @@ class GenerateCertificateView(APIView):
             ]
             draw.polygon(highlight_points2, fill=(220, 0, 0))
 
-            # Certificate content with improved spacing
             y_pos = 160
             
-            # Title with shadow effect
             y_pos = draw_centered_text("Certificate of Achievement", y_pos, heading_font, color=(0, 80, 0), shadow=True)
             
-            # Decorative line under title
             line_y = y_pos + 20
             line_width = 500
             draw.line([width/2 - line_width/2, line_y, width/2 + line_width/2, line_y], 
@@ -2204,16 +2128,13 @@ class GenerateCertificateView(APIView):
             y_pos = line_y + 60
             y_pos = draw_centered_text("This is to certify that", y_pos, italic_font)
             
-            # Student name with prominence
             name_y = y_pos + 30
             student_name = f"{user.first_name} {user.last_name}"
             
-            # Name with shadow and highlight
             name_bbox = draw.textbbox((0, 0), student_name, font=heading_font)
             name_width = name_bbox[2] - name_bbox[0]
             name_x = (width - name_width) / 2
             
-            # Draw subtle highlight behind name
             highlight_padding = 20
             draw.rectangle([
                 name_x - highlight_padding, 
@@ -2222,18 +2143,15 @@ class GenerateCertificateView(APIView):
                 name_y + (name_bbox[3] - name_bbox[1]) + highlight_padding/2
             ], fill=(245, 255, 245), outline=None)
             
-            # Draw name with shadow
             draw.text((name_x+2, name_y+2), student_name, fill=(0, 0, 0), font=heading_font)
             draw.text((name_x, name_y), student_name, fill=(0, 80, 0), font=heading_font)
             
             y_pos = name_y + (name_bbox[3] - name_bbox[1]) + 50
             y_pos = draw_centered_text("has successfully completed the course", y_pos, italic_font)
             
-            # Course title with emphasis
             course_y = y_pos + 30
             course_title = f"\"{course.title}\""
             
-            # Course title with decorative elements
             course_bbox = draw.textbbox((0, 0), course_title, font=bold_font)
             course_width = course_bbox[2] - course_bbox[0]
             course_x = (width - course_width) / 2

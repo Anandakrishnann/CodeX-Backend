@@ -29,6 +29,7 @@ from notifications.utils import send_notification
 from Accounts.tasks import send_report_marked_email
 from django.core.mail import send_mail
 from decimal import Decimal, InvalidOperation
+from django.db import transaction
 import re
 import os
 import logging
@@ -999,83 +1000,222 @@ class CoureseStatusView(APIView):
 
 class AcceptCourseRequestView(APIView):
     def post(self, request, courseId):
-        logger.info(f"[AcceptCourseRequestView] POST request received for courseId={courseId}")
+        logger.info(
+            "AcceptCourseRequestView POST initiated | course_id=%s | admin_id=%s",
+            courseId,
+            request.user.id
+        )
 
         try:
             course = get_object_or_404(Course, id=courseId)
-            logger.debug(f"[DEBUG] Course found: {course.name} (status={course.status})")
 
-            # ✅ FIX: Directly access the related tutor
+            logger.debug(
+                "Course fetched | course_id=%s | status=%s | is_active=%s",
+                course.id,
+                course.status,
+                course.is_active
+            )
+
+            if course.status == "accepted":
+                logger.warning(
+                    "Course already accepted | course_id=%s",
+                    course.id
+                )
+                return Response(
+                    {"message": "Course already accepted"},
+                    status=status.HTTP_200_OK
+                )
+
             tutor = course.created_by
-            logger.debug(f"[DEBUG] Tutor fetched from course: {tutor}")
+            user = tutor.account
 
-            # ✅ Get tutor's account
-            user = get_object_or_404(Accounts, id=tutor.account.id)
-            logger.debug("[DEBUG] Tutor's account found | user_id=%s", user.id)
+            with transaction.atomic():
+                modules_updated = Modules.objects.filter(
+                    course=course,
+                    status="pending"
+                ).update(
+                    status="accepted",
+                    is_active=True
+                )
 
-            # ✅ Update course status
-            course.status = "accepted"
-            course.is_active = True
-            course.save()
-            logger.info(f"[INFO] Course '{course.name}' accepted successfully.")
+                lessons_updated = Lessons.objects.filter(
+                    module__course=course,
+                    status="pending"
+                ).update(
+                    status="accepted",
+                    is_active=True
+                )
 
-            # ✅ Notify tutor
+                course.status = "accepted"
+                course.is_active = True
+                course.save(update_fields=["status", "is_active"])
+
+                logger.info(
+                    "Course accepted successfully | course_id=%s | modules=%s | lessons=%s",
+                    course.id,
+                    modules_updated,
+                    lessons_updated
+                )
+
             try:
-                send_notification(user, f"🎉 Your course '{course.name}' was accepted by admin.")
-                logger.info("[SUCCESS] Notification sent | user_id=%s | course_id=%s", user.id, course.id)
+                send_notification(
+                    user,
+                    f"🎉 Your course '{course.name}' has been approved and is now live."
+                )
+                logger.info(
+                    "Notification sent successfully | user_id=%s | course_id=%s",
+                    user.id,
+                    course.id
+                )
             except Exception as notify_error:
-                logger.error(f"[ERROR] Failed to send notification: {notify_error}", exc_info=True)
+                logger.error(
+                    "Notification failed | user_id=%s | course_id=%s | error=%s",
+                    user.id,
+                    course.id,
+                    str(notify_error),
+                    exc_info=True
+                )
 
-            return Response({"message": "course accepted successfully"}, status=status.HTTP_200_OK)
+            return Response(
+                {"message": "Course accepted successfully"},
+                status=status.HTTP_200_OK
+            )
 
         except Exception as e:
-            logger.exception(f"[EXCEPTION] Error while accepting course request for courseId={courseId}: {e}")
-            return Response({"Error": "Error While Accepting Course Request"}, status=status.HTTP_400_BAD_REQUEST)
-        
+            logger.error(
+                "Error while accepting course | course_id=%s | error=%s",
+                courseId,
+                str(e),
+                exc_info=True
+            )
+            return Response(
+                {"error": "Error while accepting course request"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
 
 
 class RejectCourseRequestView(APIView):
 
     def post(self, request, courseId):
+        logger.info(
+            "RejectCourseRequest initiated | course_id=%s | admin_id=%s",
+            courseId,
+            request.user.id
+        )
+
         try:
             course = get_object_or_404(Course, id=courseId)
             reason = request.data.get("reason")
 
             if not reason:
-                return Response({"error": "Rejection reason is required"}, status=400)
-            
+                logger.warning(
+                    "Rejection reason missing | course_id=%s",
+                    courseId
+                )
+                return Response(
+                    {"error": "Rejection reason is required"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            if course.status == "rejected":
+                logger.warning(
+                    "Course already rejected | course_id=%s",
+                    course.id
+                )
+                return Response(
+                    {"message": "Course already rejected"},
+                    status=status.HTTP_200_OK
+                )
+
             tutor = course.created_by
+            user = tutor.account
 
-            user = get_object_or_404(Accounts, id=tutor.account.id)
+            CourseRejectionHistory.objects.create(
+                course=course,
+                admin=request.user,
+                reason=reason
+            )
 
-            if not course:
-                return Response({"error":"Course Not Found"}, status=status.HTTP_404_NOT_FOUND)
-            
-            CourseRejectionHistory.objects.create(course=course, admin=request.user, reason=reason)
-            
-            course.status = "rejected"
-            course.is_active = False
-            course.save()
-            
-            send_notification(user, "Your course was rejected. Check your email for details.")
+            with transaction.atomic():
+                modules_updated = Modules.objects.filter(
+                    course=course,
+                    status="pending"
+                ).update(
+                    status="rejected",
+                    is_active=False
+                )
+
+                lessons_updated = Lessons.objects.filter(
+                    module__course=course,
+                    status="pending"
+                ).update(
+                    status="rejected",
+                    is_active=False
+                )
+
+                course.status = "rejected"
+                course.is_active = False
+                course.save(update_fields=["status", "is_active"])
+
+                logger.info(
+                    "Course rejected successfully | course_id=%s | modules=%s | lessons=%s",
+                    course.id,
+                    modules_updated,
+                    lessons_updated
+                )
+
+            try:
+                send_notification(
+                    user,
+                    f"⚠️ Your course '{course.title}' was rejected. Check your email for details."
+                )
+                logger.info(
+                    "Rejection notification sent | user_id=%s | course_id=%s",
+                    user.id,
+                    course.id
+                )
+            except Exception as notify_error:
+                logger.error(
+                    "Notification failed | user_id=%s | error=%s",
+                    user.id,
+                    str(notify_error),
+                    exc_info=True
+                )
 
             subject = "⚠️ Course Status Update — Course Rejected"
-
             message = (
-                f"Hello {user.first_name},\n\n" 
+                f"Hello {user.first_name},\n\n"
                 f"Your course \"{course.title}\" has been reviewed and unfortunately it has been rejected.\n\n"
-                f"Reason: {reason}\n\n"
-                f"Before resubmitting, please make sure your course meets the platform guidelines, "
-                f"includes clear structure, proper content, and all required details.\n\n"
-                f"You can update the course based on the above reason and resubmit it for review.\n\n"
+                f"Reason:\n{reason}\n\n"
+                f"You may update the course based on this feedback and resubmit it for review.\n\n"
                 f"— CodeX Learning Team"
             )
 
-            send_mail(subject, message, os.getenv("EMAIL_HOST_USER"), [user.email])
-            
-            return Response({"message":"course rejected successfully"}, status=status.HTTP_200_OK)
-        except:
-            return Response({"Error": "Error While Rjecting Course Request"}, status=status.HTTP_400_BAD_REQUEST)
+            send_mail(
+                subject,
+                message,
+                os.getenv("EMAIL_HOST_USER"),
+                [user.email],
+                fail_silently=False
+            )
+
+            return Response(
+                {"message": "Course rejected successfully"},
+                status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            logger.error(
+                "Error while rejecting course | course_id=%s | error=%s",
+                courseId,
+                str(e),
+                exc_info=True
+            )
+            return Response(
+                {"error": "Error while rejecting course request"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
 
 

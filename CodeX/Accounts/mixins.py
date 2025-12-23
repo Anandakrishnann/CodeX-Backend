@@ -11,7 +11,6 @@ class IsNotBlocked(BasePermission):
 
 class UserBlockCheckMixin:
     def dispatch(self, request, *args, **kwargs):
-        # Ensure user is not blocked
         if request.user.is_authenticated and getattr(request.user, "isblocked", False):
             return Response(
                 {"error": "Your account has been blocked. Please contact support."},

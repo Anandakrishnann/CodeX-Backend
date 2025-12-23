@@ -195,15 +195,16 @@ LOGGING = {
 # }
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'codexlearning',
-        'USER': 'postgres',
-        'PASSWORD': 'admin',
-        'HOST': 'localhost', 
-        'PORT': '5432',     
+    "default": {
+        "ENGINE": os.getenv("DB_ENGINE"),
+        "NAME": os.getenv("DB_NAME"),
+        "USER": os.getenv("DB_USER"),
+        "PASSWORD": os.getenv("DB_PASSWORD"),
+        "HOST": os.getenv("DB_HOST"),
+        "PORT": os.getenv("DB_PORT", cast=int),
     }
 }
+
 
 
 EMAIL_BACKEND = os.getenv('EMAIL_BACKEND')
@@ -284,24 +285,32 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100MB limit
 TIME_ZONE = 'Asia/Kolkata'  # Set to IST
 USE_TZ = True
 
-# Celery Configuration
-CELERY_BROKER_URL = 'redis://127.0.0.1:6379/0'
-CELERY_RESULT_BACKEND = 'redis://127.0.0.1:6379/0'
-CELERY_TASK_SERIALIZER = 'pickle'  # Use Pickle for reliable eta handling
-CELERY_RESULT_SERIALIZER = 'pickle'
-CELERY_ACCEPT_CONTENT = ['application/x-python-serialize']
-CELERY_TIMEZONE = 'Asia/Kolkata'  # Match TIME_ZONE for IST
-CELERY_ENABLE_UTC = False  # Disable UTC to use TIME_ZONE
-CELERY_TASK_TRACK_STARTED = True  # For debugging
-CELERY_TASK_SOFT_TIME_LIMIT = 300  # 5-minute task limit
+REDIS_HOST = os.getenv("REDIS_HOST", default="127.0.0.1")
+REDIS_PORT = os.getenv("REDIS_PORT", default=6379, cast=int)
+
+CELERY_BROKER_DB = os.getenv("CELERY_BROKER_DB", default=0, cast=int)
+CELERY_RESULT_DB = os.getenv("CELERY_RESULT_DB", default=0, cast=int)
+CELERY_CACHE_DB = os.getenv("CELERY_CACHE_DB", default=1, cast=int)
+
+CELERY_BROKER_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/{CELERY_BROKER_DB}"
+CELERY_RESULT_BACKEND = f"redis://{REDIS_HOST}:{REDIS_PORT}/{CELERY_RESULT_DB}"
+
+CELERY_TASK_SERIALIZER = os.getenv("CELERY_TASK_SERIALIZER")
+CELERY_RESULT_SERIALIZER = os.getenv("CELERY_RESULT_SERIALIZER")
+CELERY_ACCEPT_CONTENT = [os.getenv("CELERY_ACCEPT_CONTENT")]
+
+CELERY_TIMEZONE = os.getenv("CELERY_TIMEZONE")
+CELERY_ENABLE_UTC = os.getenv("CELERY_ENABLE_UTC", cast=bool)
+
+CELERY_TASK_TRACK_STARTED = os.getenv("CELERY_TASK_TRACK_STARTED", cast=bool)
+CELERY_TASK_SOFT_TIME_LIMIT = os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", cast=int)
 
 
-# Channels (keep as is)
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": ["redis://127.0.0.1:6379/0"],
+            "hosts": [f"redis://{REDIS_HOST}:{REDIS_PORT}/{CELERY_BROKER_DB}"],
         },
     },
 }
@@ -310,13 +319,12 @@ CHANNEL_LAYERS = {
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": "redis://127.0.0.1:6379/1",
+        "LOCATION": f"redis://{REDIS_HOST}:{REDIS_PORT}/{CELERY_CACHE_DB}",
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
         }
     }
 }
-
 
 
 ZEGOCLOUD_APP_ID = os.getenv("ZEGOCLOUD_APP_ID")
