@@ -31,6 +31,9 @@ db.sqlite3
 *.swo
 *.sqlite3
 
+
+local_data.sql 
+
 # Virtual environments
 venv/
 env/

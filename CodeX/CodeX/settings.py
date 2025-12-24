@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
+
 from pathlib import Path
 from datetime import timedelta
 
@@ -17,16 +18,13 @@ import os
 import cloudinary
 import cloudinary.uploader
 import cloudinary.api
-import dj_database_url
 import sys
-
-
-
 from dotenv import load_dotenv
-load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+load_dotenv(BASE_DIR / ".env")
 
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
@@ -38,7 +36,7 @@ os.makedirs(LOG_DIR, exist_ok=True)
 SECRET_KEY = os.getenv('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG')
+DEBUG = os.getenv("DEBUG", "False") == "True"
 
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "").split(",")
 
@@ -52,7 +50,7 @@ INSTALLED_APPS = [
     "corsheaders",
     'rest_framework',
     'rest_framework_simplejwt',
-    'rest_framework_simplejwt.token_blacklist', 
+    'rest_framework_simplejwt.token_blacklist',
     'Accounts',
     'adminpanel',
     'tutorpanel',
@@ -77,25 +75,23 @@ MIDDLEWARE = [
 
 CORS_ALLOW_CREDENTIALS = True
 
-CORS_ALLOW_ALL_ORIGINS = True  # For development only!
-
-
-
 CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', '').split(',')
 
 CORS_ALLOW_HEADERS = [
-    "content-type",
     "authorization",
+    "content-type",
+    "x-csrftoken",
+    "x-requested-with",
 ]
 
 CSRF_TRUSTED_ORIGINS = os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',')
 
-CSRF_COOKIE_HTTPONLY = False  
-CSRF_COOKIE_SECURE = False  # Set to False for local development
+CSRF_COOKIE_HTTPONLY = False
+CSRF_COOKIE_SECURE = False
 CSRF_COOKIE_SAMESITE = "None"
 
 SESSION_COOKIE_SAMESITE = "None"
-SESSION_COOKIE_SECURE = False  # Set to False for local development
+SESSION_COOKIE_SECURE = False
 
 
 REST_FRAMEWORK = {
@@ -111,15 +107,15 @@ REST_FRAMEWORK = {
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
-    "ROTATE_REFRESH_TOKENS": False, 
-    "BLACKLIST_AFTER_ROTATION": False, 
-    "AUTH_COOKIE": "access_token", 
-    "AUTH_COOKIE_REFRESH": "refresh_token", 
-    "AUTH_COOKIE_HTTP_ONLY": True,  
-    "AUTH_COOKIE_SECURE": True, 
-    "AUTH_COOKIE_SAMESITE": "None",  
+    "ROTATE_REFRESH_TOKENS": False,
+    "BLACKLIST_AFTER_ROTATION": False,
+    "AUTH_COOKIE": "access_token",
+    "AUTH_COOKIE_REFRESH": "refresh_token",
+    "AUTH_COOKIE_HTTP_ONLY": True,
+    "AUTH_COOKIE_SECURE": True,
+    "AUTH_COOKIE_SAMESITE": "None",
     "AUTH_TOKEN_CLASSES": ("rest_framework_simplejwt.tokens.AccessToken",),
-    "TOKEN_BLACKLIST_ENABLED": True, 
+    "TOKEN_BLACKLIST_ENABLED": True,
 }
 
 ROOT_URLCONF = 'CodeX.urls'
@@ -178,32 +174,6 @@ LOGGING = {
     },
 }
 
-
-
-
-
-# Database
-# https://docs.djangoproject.com/en/5.1/ref/settings/#databases
-
-
-# DATABASES = {
-#     'default': dj_database_url.config(
-#         default=os.getenv('DATABASE_URL'),
-#         conn_max_age=600,
-#         ssl_require=True
-#     )
-# }
-
-DATABASES = {
-    "default": {
-        "ENGINE": os.getenv("DB_ENGINE"),
-        "NAME": os.getenv("DB_NAME"),
-        "USER": os.getenv("DB_USER"),
-        "PASSWORD": os.getenv("DB_PASSWORD"),
-        "HOST": os.getenv("DB_HOST"),
-        "PORT": int(os.getenv("DB_PORT", 5432)),
-    }
-}
 
 
 
@@ -340,3 +310,16 @@ TESTING = len(sys.argv) > 1 and sys.argv[1] == "test"
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.getenv("DB_NAME"),
+        "USER": os.getenv("DB_USER"),
+        "PASSWORD": os.getenv("DB_PASSWORD"),
+        "HOST": os.getenv("DB_HOST"),
+        "PORT": os.getenv("DB_PORT"),
+    }
+}
+
