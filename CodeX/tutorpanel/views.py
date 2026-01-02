@@ -227,7 +227,6 @@ class SubscriptionHistoryView(APIView):
 
 
 
-
 class EditTutorView(APIView):
     permission_classes = [IsSubscribed]
 
@@ -1212,92 +1211,113 @@ class RecentMeetingsView(APIView):
 
 class CourseMonthlyTrendsView(APIView):
     permission_classes = [IsAuthenticated]
-    
+
     def get(self, request, id):
         try:
             course = Course.objects.get(id=id)
         except Course.DoesNotExist:
-            logger.warning(f"Course {id} not found")
-            return Response({"error": "Course ID does not exist"}, status=status.HTTP_404_NOT_FOUND)
+            logger.warning("Requested course not found")
+            return Response(
+                {"error": "Course does not exist"},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
         now = timezone.now()
         start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         start_of_year = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
 
-        enrollments = UserCourseEnrollment.objects.filter(course=course)
+        enrollments = UserCourseEnrollment.objects.filter(
+            course=course
+        ).exclude(status="pending")
 
         total_users = enrollments.values("user").distinct().count()
         monthly_purchases = enrollments.filter(enrolled_on__gte=start_of_month).count()
         yearly_purchases = enrollments.filter(enrolled_on__gte=start_of_year).count()
 
-        total_revenue = enrollments.aggregate(total=Sum(F("course__price")))["total"] or 0
-        monthly_revenue = enrollments.filter(enrolled_on__gte=start_of_month).aggregate(total=Sum(F("course__price")))["total"] or 0
-        yearly_revenue = enrollments.filter(enrolled_on__gte=start_of_year).aggregate(total=Sum(F("course__price")))["total"] or 0
+        total_revenue = enrollments.aggregate(
+            total=Sum(F("course__price"))
+        )["total"] or 0
+
+        monthly_revenue = enrollments.filter(
+            enrolled_on__gte=start_of_month
+        ).aggregate(total=Sum(F("course__price")))["total"] or 0
+
+        yearly_revenue = enrollments.filter(
+            enrolled_on__gte=start_of_year
+        ).aggregate(total=Sum(F("course__price")))["total"] or 0
 
         prev_month_start = (start_of_month - timedelta(days=1)).replace(day=1)
         prev_month_end = start_of_month - timedelta(seconds=1)
-        prev_month_count = enrollments.filter(enrolled_on__range=(prev_month_start, prev_month_end)).count()
 
-        growth_rate = 0
-        if prev_month_count > 0:
+        prev_month_count = enrollments.filter(
+            enrolled_on__range=(prev_month_start, prev_month_end)
+        ).count()
+
+        if prev_month_count == 0 and monthly_purchases > 0:
+            growth_rate = 100
+        elif prev_month_count > 0:
             growth_rate = ((monthly_purchases - prev_month_count) / prev_month_count) * 100
+        else:
+            growth_rate = 0
 
-        average_revenue_per_user = total_revenue / total_users if total_users > 0 else 0
-
-        monthly_trends_qs = (
-            enrollments
-            .filter(enrolled_on__year=now.year)
-            .annotate(month=TruncMonth("enrolled_on"))
-            .values("month")
-            .annotate(
-                purchases=Count("id"),
-                revenue=Sum(F("course__price")),
-            )
-            .order_by("month")
+        average_revenue_per_user = (
+            total_revenue / total_users if total_users > 0 else 0
         )
+
         monthly_trends = [
             {
                 "month": m["month"].strftime("%b %Y"),
                 "purchases": m["purchases"],
-                "revenue": m["revenue"] or 0
+                "revenue": m["revenue"] or 0,
             }
-            for m in monthly_trends_qs
+            for m in (
+                enrollments
+                .filter(enrolled_on__year=now.year)
+                .annotate(month=TruncMonth("enrolled_on"))
+                .values("month")
+                .annotate(
+                    purchases=Count("id"),
+                    revenue=Sum(F("course__price")),
+                )
+                .order_by("month")
+            )
         ]
 
-        yearly_trends_qs = (
-            enrollments
-            .annotate(year=TruncYear("enrolled_on"))
-            .values("year")
-            .annotate(
-                purchases=Count("id"),
-                revenue=Sum(F("course__price")),
-            )
-            .order_by("year")
-        )
         yearly_trends = [
             {
                 "year": y["year"].year,
                 "purchases": y["purchases"],
-                "revenue": y["revenue"] or 0
+                "revenue": y["revenue"] or 0,
             }
-            for y in yearly_trends_qs
+            for y in (
+                enrollments
+                .annotate(year=TruncYear("enrolled_on"))
+                .values("year")
+                .annotate(
+                    purchases=Count("id"),
+                    revenue=Sum(F("course__price")),
+                )
+                .order_by("year")
+            )
         ]
 
-        data = {
-            "total_users": total_users,
-            "monthly_purchases": monthly_purchases,
-            "yearly_purchases": yearly_purchases,
-            "total_revenue": round(total_revenue, 2),
-            "monthly_revenue": round(monthly_revenue, 2),
-            "yearly_revenue": round(yearly_revenue, 2),
-            "growth_rate": round(growth_rate, 2),
-            "average_revenue_per_user": round(average_revenue_per_user, 2),
-            "monthly_trends": monthly_trends,
-            "yearly_trends": yearly_trends,
-        }
+        logger.info("Course analytics data generated successfully")
 
-        logger.debug(f"Course monthly trends calculated for course {id}")
-        return Response(data, status=status.HTTP_200_OK)
+        return Response(
+            {
+                "total_users": total_users,
+                "monthly_purchases": monthly_purchases,
+                "yearly_purchases": yearly_purchases,
+                "total_revenue": round(total_revenue, 2),
+                "monthly_revenue": round(monthly_revenue, 2),
+                "yearly_revenue": round(yearly_revenue, 2),
+                "growth_rate": round(growth_rate, 2),
+                "average_revenue_per_user": round(average_revenue_per_user, 2),
+                "monthly_trends": monthly_trends,
+                "yearly_trends": yearly_trends,
+            },
+            status=status.HTTP_200_OK
+        )
     
     
     

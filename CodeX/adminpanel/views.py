@@ -31,6 +31,7 @@ from Accounts.tasks import send_report_marked_email
 from django.core.mail import send_mail
 from decimal import Decimal, InvalidOperation
 from django.db import transaction
+from permissions import IsSuperAdmin
 import re
 import os
 import logging
@@ -40,6 +41,9 @@ logger = logging.getLogger("codex")
 
 
 class AdminDashboardView(APIView):
+    
+    permission_classes = [IsSuperAdmin]
+    
     def get(self, request):
         logger.info("[AdminDashboardView] Called")
 
@@ -202,6 +206,9 @@ class AdminDashboardView(APIView):
 
 
 class ListUsers(APIView):
+        
+    permission_classes = [IsSuperAdmin]
+    
     def get(self, request):
         try:
             users = Accounts.objects.filter(role="user")
@@ -216,6 +223,9 @@ class ListUsers(APIView):
 
 
 class ListTutors(APIView):
+        
+    permission_classes = [IsSuperAdmin]
+    
     def get(self, request):
         try:
             # Get all tutors with active subscriptions
@@ -251,7 +261,9 @@ class ListTutors(APIView):
 
 
 class UserStatus(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def post(self, request):
         try:
             user_id = request.data.get('id')
@@ -305,7 +317,9 @@ class UserStatus(APIView):
 
 
 class TutorStatus(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def post(self, request):
         try:
             tutor_id = request.data.get('id')
@@ -477,7 +491,9 @@ class TutorApplicationsOverView(APIView):
 
 
 class TutorOverView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def get(self, request, userId):
         try:
             deatils = get_object_or_404(TutorDetails, id=userId)
@@ -518,7 +534,9 @@ class TutorOverView(APIView):
 
 
 class AcceptApplicationView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def post(self, request, applicationId):
         try:
             application = get_object_or_404(TutorApplications, id=applicationId)
@@ -599,6 +617,9 @@ class AcceptApplicationView(APIView):
 
 
 class RejectApplicationView(APIView):
+        
+    permission_classes = [IsSuperAdmin]
+    
     def post(self, request, applicationId):
         try:
             application = get_object_or_404(TutorApplications, id=applicationId)
@@ -637,6 +658,9 @@ class RejectApplicationView(APIView):
 
 
 class RejectedReasonView(APIView):
+        
+    permission_classes = [IsSuperAdmin]
+    
     def get(self, request, id):
         try:
             
@@ -654,6 +678,9 @@ class RejectedReasonView(APIView):
 
 
 class ListApplicationsView(APIView):
+        
+    permission_classes = [IsSuperAdmin]
+    
     def get(self, request):
         try:
             applications = TutorApplications.objects.all()
@@ -665,7 +692,9 @@ class ListApplicationsView(APIView):
 
 
 class EditUserView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def put(self, request, email):
         try:
             try:
@@ -680,6 +709,9 @@ class EditUserView(APIView):
 
 
 class CreateCategoryView(APIView):
+        
+    permission_classes = [IsSuperAdmin]
+    
     def post(self, request):
         try:
             serializer = CategorySerializer(data=request.data)
@@ -698,6 +730,9 @@ class CreateCategoryView(APIView):
 
 
 class EditCategoryView(APIView):
+        
+    permission_classes = [IsSuperAdmin]
+    
     def put(self, request, id):
         try:
             try:
@@ -722,7 +757,9 @@ class EditCategoryView(APIView):
 
 
 class ListCategoryView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def get(self, request):
         try:
             categorys = CourseCategory.objects.all()
@@ -734,7 +771,9 @@ class ListCategoryView(APIView):
 
 
 class CategoryStatusView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def post(self, request):
         try:
             category_id = request.data.get('id')
@@ -776,9 +815,10 @@ def create_stripe_product_and_price(plan):
 
 
 
-
 class CreatePlanView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def post(self, request):
         serializer = PlanSerializer(data=request.data)
         if serializer.is_valid():
@@ -793,7 +833,9 @@ class CreatePlanView(APIView):
 
 
 class DeletePlanView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def post(self, request, id):
         logger.info("DeletePlanView request received")
 
@@ -827,7 +869,9 @@ class DeletePlanView(APIView):
 
 
 class ListPlanView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def get(self, request):
         try:
             plans = Plan.objects.all()
@@ -839,7 +883,9 @@ class ListPlanView(APIView):
 
 
 class CourseRequestsView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def get(self, request):
         try:
             course_requests = Course.objects.exclude(status="accepted")
@@ -870,7 +916,9 @@ class CourseRequestsView(APIView):
 
 
 class CourseStatusView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def post(self, request, id):
         try:
             course = get_object_or_404(Course, id=id)
@@ -933,6 +981,8 @@ class CourseStatusView(APIView):
 
 
 class SetCourseDraftView(APIView):
+        
+    permission_classes = [IsSuperAdmin]
     
     def post(self, request, id):
         try:
@@ -949,7 +999,9 @@ class SetCourseDraftView(APIView):
 
 
 class ListCoursesView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def get(self, requests):
         try:
             course_requests = Course.objects.filter(status="accepted")
@@ -981,7 +1033,9 @@ class ListCoursesView(APIView):
 
 
 class CoureseStatusView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def post(self, request, id):
         try:
             course = get_object_or_404(Course, id=id)
@@ -1044,6 +1098,9 @@ class CoureseStatusView(APIView):
 
 
 class AcceptCourseRequestView(APIView):
+        
+    permission_classes = [IsSuperAdmin]
+    
     def post(self, request, courseId):
         logger.info(
             "AcceptCourseRequestView POST initiated | course_id=%s | admin_id=%s",
@@ -1141,7 +1198,9 @@ class AcceptCourseRequestView(APIView):
 
 
 class RejectCourseRequestView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def post(self, request, courseId):
         logger.info(
             "RejectCourseRequest initiated | course_id=%s | admin_id=%s",
@@ -1265,7 +1324,9 @@ class RejectCourseRequestView(APIView):
 
 
 class AcceptModuleView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def post(self, request, id):
         try:
             module = get_object_or_404(Modules, id=id)
@@ -1293,7 +1354,9 @@ class AcceptModuleView(APIView):
 
 
 class RejectModuleView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def post(self, request, id):
         try:
             module = get_object_or_404(Modules, id=id)
@@ -1345,6 +1408,9 @@ class RejectModuleView(APIView):
 
 
 class ListCourseModulesView(APIView):
+        
+    permission_classes = [IsSuperAdmin]
+    
     def get(self, request, id):
         try:
             try:
@@ -1367,7 +1433,9 @@ class ListCourseModulesView(APIView):
 
 
 class CourseOverView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def get(self, request, id):
         try:
             try:
@@ -1384,7 +1452,9 @@ class CourseOverView(APIView):
 
 
 class ModuleDetailView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def get(self, request, id):
         try:
             module = get_object_or_404(Modules, id=id)
@@ -1399,7 +1469,9 @@ class ModuleDetailView(APIView):
 
 
 class ModuleStatusView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def post(self, request, id):
         try:
             module = get_object_or_404(Modules, id=id)
@@ -1455,7 +1527,9 @@ class ModuleStatusView(APIView):
 
 
 class ListCourseLessonView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def get(self, request, id):
         try:
             logger.debug(f"module id: {id}")
@@ -1478,7 +1552,9 @@ class ListCourseLessonView(APIView):
 
 
 class AcceptLessonView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def post(self, request, lessonId):
         try:
             lesson = get_object_or_404(Lessons, id=lessonId)
@@ -1504,7 +1580,9 @@ class AcceptLessonView(APIView):
 
 
 class RejectLessonView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def post(self, request, lessonId):
         try:
             lesson = get_object_or_404(Lessons, id=lessonId)
@@ -1553,7 +1631,9 @@ class RejectLessonView(APIView):
 
 
 class LessonStatusView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def post(self, request, lessonId):
         try:
             lesson = get_object_or_404(Lessons, id=lessonId)
@@ -1624,7 +1704,9 @@ class LessonOverview(APIView):
 
 
 class ReportsView(APIView):
-
+    
+    permission_classes = [IsSuperAdmin]
+    
     def get(self, request):
         try:
             tutor_reports = TutorReport.objects.all()
@@ -1678,6 +1760,9 @@ class ReportsView(APIView):
 
 
 class TutorReportMarkView(APIView):
+        
+    permission_classes = [IsSuperAdmin]
+    
     def post(self, request, id):
         try:
             report = get_object_or_404(TutorReport, id=id)
@@ -1721,6 +1806,9 @@ class TutorReportMarkView(APIView):
 
 
 class CourseReportMarkView(APIView):
+        
+    permission_classes = [IsSuperAdmin]
+    
     def post(self, request, id):
         try:
             report = get_object_or_404(CourseReport, id=id)
@@ -1764,6 +1852,8 @@ class CourseReportMarkView(APIView):
 
 
 class PlatformWalletView(APIView):
+        
+    permission_classes = [IsSuperAdmin]
     
     def get(self, request):
         try:
@@ -1794,6 +1884,9 @@ class PlatformWalletView(APIView):
 
 
 class PayoutRequestsListView(APIView):
+        
+    permission_classes = [IsSuperAdmin]
+    
     def get(self, request):
         
         try:
@@ -1819,6 +1912,9 @@ class PayoutRequestsListView(APIView):
 
 
 class PayoutRequestDetailsView(APIView):
+        
+    permission_classes = [IsSuperAdmin]
+    
     def get(self, request, id):
         try:
             logger.info(f"PayoutRequestDetailsView GET requested id: {id}")
@@ -1862,6 +1958,9 @@ class PayoutRequestDetailsView(APIView):
 
 
 class ApprovePayoutRequestView(APIView):
+        
+    permission_classes = [IsSuperAdmin]
+    
     def post(self, request, id):
         try:
             admin_note = request.data.get("admin_note")
@@ -1955,6 +2054,9 @@ class ApprovePayoutRequestView(APIView):
 
 
 class RejectPayoutRequestView(APIView):
+        
+    permission_classes = [IsSuperAdmin]
+    
     def post(self, request, id):
         try:
             admin_note = request.data.get("admin_note")

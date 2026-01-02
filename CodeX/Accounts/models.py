@@ -182,6 +182,7 @@ class UserCourseEnrollment(models.Model):
         ]
 
 
+
 class ModuleProgress(models.Model):
     STATUS_CHOICES = (
         ('pending', 'Pending'),
