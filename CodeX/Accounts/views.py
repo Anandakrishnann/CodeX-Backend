@@ -407,7 +407,10 @@ class GoogleLoginView(APIView):
             user.google_verified = True
             user.profile_picture = picture
             user.save()
-
+            
+        if user.isblocked:
+            logger.warning("User account blocked by admin | user_id=%s", user.id)
+            return Response({"error":"⚠️ User account blocked by admin."}, status=status.HTTP_406_NOT_ACCEPTABLE)
 
         refresh = RefreshToken.for_user(user)
         access_token = str(refresh.access_token)
