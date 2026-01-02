@@ -184,7 +184,8 @@ class TutorProfileView(APIView):
             "occupation": details.occupation,
             "experience": details.experience,
             "verification_file": details.verification_file,
-            "verification_video": details.verification_video
+            "verification_video": details.verification_video,
+            "google_verified":user.google_verified
         }
         logger.debug(f"User data retrieved for tutor {user.id}")
         return Response(userData, status=status.HTTP_200_OK)

@@ -20,6 +20,7 @@ import cloudinary.uploader
 import stripe # type: ignore
 from django.db.models import Sum, Count, F, Avg
 from django.db.models.functions import TruncMonth, TruncYear, ExtractYear
+from decimal import Decimal, ROUND_HALF_UP
 from itertools import chain
 import traceback
 from Accounts.models import *
@@ -751,18 +752,28 @@ class CategoryStatusView(APIView):
 
 
 def create_stripe_product_and_price(plan):
-    product = stripe.Product.create(name=plan.name)
+    product = stripe.Product.create(
+        name=plan.name
+    )
 
     interval = "month" if plan.plan_type == "MONTHLY" else "year"
 
+    amount_in_cents = int(
+        (Decimal(plan.price) * Decimal("100")).quantize(
+            Decimal("1"),
+            rounding=ROUND_HALF_UP
+        )
+    )
+
     price = stripe.Price.create(
-        unit_amount=int(plan.price * 100),  # in cents
-        currency="inr",
+        unit_amount=amount_in_cents,
+        currency="usd",
         recurring={"interval": interval},
         product=product.id
     )
 
     return price.id
+
 
 
 
@@ -779,6 +790,40 @@ class CreatePlanView(APIView):
         else:
             return Response(serializer.errors, status=400)
 
+
+
+class DeletePlanView(APIView):
+
+    def post(self, request, id):
+        logger.info("DeletePlanView request received")
+
+        try:
+            plan = Plan.objects.get(id=id)
+
+        except Plan.DoesNotExist:
+            logger.warning("Plan not found")
+            return Response(
+                {"error": "Plan not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        except Exception:
+            logger.error("Unexpected error while fetching plan", exc_info=True)
+            return Response(
+                {"error": "Something went wrong"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        plan.is_active = not plan.is_active
+        plan.save(update_fields=["is_active"])
+
+        logger.info("Plan status updated successfully")
+
+        return Response(
+            {"message": "Plan status updated successfully"},
+            status=status.HTTP_200_OK
+        )
+        
 
 
 class ListPlanView(APIView):

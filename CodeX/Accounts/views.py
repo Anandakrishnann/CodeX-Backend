@@ -279,6 +279,11 @@ class LoginView(APIView):
         except Accounts.DoesNotExist:
             logger.warning("Login attempt for non-existent user | email_hash=%s", hashlib.sha256(email.encode()).hexdigest()[:16])
             return Response({"error":"User Does Not Found"}, status=status.HTTP_404_NOT_FOUND)
+        
+        if account.isblocked:
+            logger.warning("User account blocked by admin | user_id=%s", account.id)
+            return Response({"error":"⚠️ User account blocked by admin."}, status=status.HTTP_406_NOT_ACCEPTABLE)
+        
         if serializer.is_valid():
             user = serializer.validated_data["user"]
 
@@ -548,7 +553,7 @@ class ForgotPasswordView(APIView):
             token = PasswordResetTokenGenerator().make_token(user)
             uid = urlsafe_base64_encode(force_bytes(user.pk))
 
-            reset_url = f"http://localhost:3000/reset-password/{uid}/{token}/"
+            reset_url = f"{settings.DOMAIN}/reset-password/{uid}/{token}/"
 
             subject = "Reset your password"
             from_email = "codexlearninginfo@gmail.com"
@@ -725,7 +730,8 @@ class UserProfileView(APIView):
             "phone":user.phone,
             "streak":user.streak,
             "last_completed":user.last_completed_task,
-            "profile_picture": user.profile_picture
+            "profile_picture": user.profile_picture,
+            "google_verified":user.google_verified
         }
         logger.debug(f"User data retrieved for user {user.id}")
         return Response(userData, status=status.HTTP_200_OK)

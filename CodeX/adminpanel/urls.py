@@ -19,6 +19,7 @@ urlpatterns = [
     path('list-category/', ListCategoryView.as_view(), name='list_category'),
     path('category-status/', CategoryStatusView.as_view(), name='category_status'),
     path('create-plan/', CreatePlanView.as_view(), name='create_plan'),
+    path('delete-plan/<str:id>/', DeletePlanView.as_view(), name='delete_plan'),
     path('list-plan/', ListPlanView.as_view(), name='list_plan'),
     path('application-view/<str:id>/', TutorApplicationsOverView.as_view(), name='application_view'),
     path('tutor-view/<str:userId>/', TutorOverView.as_view(), name='tutor_view'),
