@@ -31,7 +31,7 @@ from Accounts.tasks import send_report_marked_email
 from django.core.mail import send_mail
 from decimal import Decimal, InvalidOperation
 from django.db import transaction
-from permissions import IsSuperAdmin
+from .permissions import IsSuperAdmin
 import re
 import os
 import logging
