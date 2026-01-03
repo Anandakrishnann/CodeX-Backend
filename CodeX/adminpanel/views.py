@@ -758,8 +758,6 @@ class EditCategoryView(APIView):
 
 class ListCategoryView(APIView):
     
-    permission_classes = [IsSuperAdmin]
-    
     def get(self, request):
         try:
             categorys = CourseCategory.objects.all()
