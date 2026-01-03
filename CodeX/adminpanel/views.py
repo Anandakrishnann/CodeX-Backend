@@ -868,8 +868,6 @@ class DeletePlanView(APIView):
 
 class ListPlanView(APIView):
     
-    permission_classes = [IsSuperAdmin]
-    
     def get(self, request):
         try:
             plans = Plan.objects.all()
