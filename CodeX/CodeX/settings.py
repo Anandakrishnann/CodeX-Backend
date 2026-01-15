@@ -71,6 +71,7 @@ MIDDLEWARE = [
 ]
 
 
+DOMAIN = os.getenv("DOMAIN")
 
 
 CORS_ALLOW_CREDENTIALS = True
