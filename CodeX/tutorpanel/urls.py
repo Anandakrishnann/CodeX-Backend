@@ -10,6 +10,7 @@ urlpatterns = [
     path('tutor-application/', TutorApplicationCheckView.as_view(), name='tutor_application'),
     path('edit-tutor/', EditTutorView.as_view(), name='edit_tutor'),
     path('profile-picture/', UploadTutorProfilePictureView.as_view(), name='profile_picture/'),
+    path('fetch-tutor/<str:id>/', FetchTutorView.as_view(), name='fetch-tutor'),
     path('create-course/', CreateCourseView.as_view(), name='create_course'),
     path('edit-course/<str:id>/', EditCourseView.as_view(), name='edit_course'),
     path('course-status/<str:id>/', CourseStatusView.as_view(), name='course_status'),

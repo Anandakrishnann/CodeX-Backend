@@ -553,6 +553,11 @@ class ForgotPasswordView(APIView):
     def post(self, request, email):
         try:
             user = get_object_or_404(Accounts, email=email)
+            
+            if user.google_verified:
+                logger.warning("User attempted forgot password but account is Google verified | user_id=%s", user.id)
+                return Response({"error":"⚠️ Unable to continue. Please sign in using your Google account to continue."}, status=status.HTTP_406_NOT_ACCEPTABLE)
+            
             token = PasswordResetTokenGenerator().make_token(user)
             uid = urlsafe_base64_encode(force_bytes(user.pk))
 

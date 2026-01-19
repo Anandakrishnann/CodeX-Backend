@@ -24,7 +24,9 @@ import re
 from notifications.utils import send_notification
 from django.core.mail import send_mail
 from decimal import Decimal, InvalidOperation
+from Accounts.permissions import IsAuthenticatedUser
 import logging
+
 
 logger = logging.getLogger("codex")
 
@@ -280,6 +282,23 @@ class UploadTutorProfilePictureView(APIView):
         except Exception as e:
             logger.exception("Error while uploading profile picture")
             return Response({"error": "Error While Profile Upload", "details": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+class FetchTutorView(APIView):
+    permission_classes = [IsAuthenticatedUser]
+    
+    def get(self, request, id):
+        try:
+            
+            if not id:
+                return Response({"error":"Tutor id is required"}, status=status.HTTP_400_BAD_REQUEST)
+            
+            tutor = TutorDetails.objects.get(id=id)
+
+            return Response(tutor.full_name, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 
