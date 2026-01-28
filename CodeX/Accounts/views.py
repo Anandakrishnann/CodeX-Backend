@@ -914,7 +914,7 @@ class ListCourseView(APIView):
         try:
             search_query = request.GET.get('search', '').strip()
             
-            course_requests = Course.objects.filter(is_active=True, is_draft=False)
+            course_requests = Course.objects.filter(is_active=True, is_draft=False, is_complete=True)
             
             if search_query:
                 from django.db.models import Q

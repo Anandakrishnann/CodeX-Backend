@@ -3,6 +3,7 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.apps import apps
 from django.contrib.auth.models import AnonymousUser
+from notifications.utils import send_notification
 
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
@@ -90,16 +91,26 @@ class ChatConsumer(AsyncWebsocketConsumer):
         Message = apps.get_model('chat', 'Message')
         Accounts = apps.get_model('Accounts', 'Accounts')
 
+        from notifications.utils import send_notification
+
         room = ChatRoom.objects.get(id=room_id)
         sender = Accounts.objects.get(id=sender_id)
 
         if sender not in [room.user, room.tutor]:
             raise PermissionError("Sender not part of room")
 
+        # Save message
         Message.objects.create(
             room=room,
             sender=sender,
             content=content
+        )
+
+        receiver = room.tutor if sender == room.user else room.user
+
+        send_notification(
+            receiver,
+            f"💬 New message from {sender.first_name}"
         )
 
 

@@ -12,6 +12,7 @@ urlpatterns = [
     path('profile-picture/', UploadTutorProfilePictureView.as_view(), name='profile_picture/'),
     path('fetch-tutor/<str:id>/', FetchTutorView.as_view(), name='fetch-tutor'),
     path('create-course/', CreateCourseView.as_view(), name='create_course'),
+    path('complete-course/<str:id>/', CompleteCourseView.as_view(), name='complete_course'),
     path('edit-course/<str:id>/', EditCourseView.as_view(), name='edit_course'),
     path('course-status/<str:id>/', CourseStatusView.as_view(), name='course_status'),
     path('list-course/', ListCourseView.as_view(), name='list_course'),

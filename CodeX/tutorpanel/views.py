@@ -343,6 +343,27 @@ class CreateCourseView(APIView):
 
 
 
+class CompleteCourseView(APIView):
+    
+    permission_classes = [IsSubscribed]
+
+    def post(self, request, id):
+        
+        logger.debug(f"course id: {id}")
+        try:
+            course = Course.objects.get(id=id)
+            
+        except Course.DoesNotExist:
+            logger.warning(f"Course {id} not found")
+            return Response({"Error":"Course Does Not Exists"}, status=status.HTTP_404_NOT_FOUND)
+        
+        course.is_complete = True
+        course.save()
+        logger.info(f"Course created successfully {course.title}")
+        return Response({"message": "Course created successfully", "status": course.is_active}, status=status.HTTP_200_OK)
+
+
+
 def get_course_levels(request):
     levels = [{"id": key, "name": value} for key, value in Course.CHOICES]
     return JsonResponse(levels, safe=False)
@@ -386,6 +407,7 @@ class ListCourseView(APIView):
                 "is_active": course.is_active,
                 "is_draft": course.is_draft,
                 "status": course.status,
+                "is_complete": course.is_complete
             })
 
         return Response(data, status=status.HTTP_200_OK)

@@ -884,7 +884,7 @@ class CourseRequestsView(APIView):
     
     def get(self, request):
         try:
-            course_requests = Course.objects.exclude(status="accepted")
+            course_requests = Course.objects.filter(status="pending", is_complete=True)
             data = []
 
             for reqeusts in course_requests:
@@ -1000,7 +1000,7 @@ class ListCoursesView(APIView):
     
     def get(self, requests):
         try:
-            course_requests = Course.objects.filter(status="accepted")
+            course_requests = Course.objects.filter(status="accepted", is_complete=True)
             data = []
 
             for reqeusts in course_requests:

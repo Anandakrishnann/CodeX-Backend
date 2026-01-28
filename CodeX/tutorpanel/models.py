@@ -17,6 +17,7 @@ class Course(models.Model):
     price = models.DecimalField(max_digits=8, decimal_places=2)
     created_at = models.DateField(auto_now=True)
     is_active = models.BooleanField(default=False)
+    is_complete = models.BooleanField(default=False)
     
     is_draft = models.BooleanField(default=False)
 
