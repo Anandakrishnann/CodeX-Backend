@@ -32,6 +32,9 @@ db.sqlite3
 *.sqlite3
 
 
+celerybeat-schedule
+staticfiles/
+
 local_data.sql 
 
 # Virtual environments
